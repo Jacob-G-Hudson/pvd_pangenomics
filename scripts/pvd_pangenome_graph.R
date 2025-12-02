@@ -180,14 +180,25 @@ all_loci <- all_loci %>%
   left_join(HOG_annotation,
             by = c("HOG" = "HOG"))
 
-## Save out annotations for later use
-write.csv(x         = all_loci,
-          file      = annotations_file,
-          row.names = FALSE)
+
+# Section 1 summary stats ------------------------------------------------------
+n_ORFs <- nrow(all_loci)
+n_HOGs <- all_loci %>%
+  pull(HOG) %>%
+  unique() %>%
+  length()
+
+HOG_classes <- all_loci %>%
+  select(HOG_annotation) %>%
+  distinct() %>%
+  mutate(HOG_group = case_when(grepl("^HP_\\d+$", HOG_annotation) ~ "Hypothetical",
+                               grepl("Unclear_\\d+$", HOG_annotation) ~ "Unclear",
+                               .default = "Clear")) %>%
+  group_by(HOG_group) %>%
+  summarise(n = n()) %>%
+  mutate(percentage = n/n_HOGs * 100)
 
 # Manually resolve annotations for some HOGs -----------------------------------
-## TODO define a theme for phylogenetic trees?
-
 # Find unclear orthogroups which contain our genes of interest
 OGs_to_examine <- all_loci %>%
   filter(bakta_annotation %in% query_metadata$locus_name_in_source) %>%
@@ -281,8 +292,8 @@ for(gene in c("entF", "solG",
   node        <- paste0(gene,"_node")
   node_number <- get(node)
   
-  tmp_genes <- as_tibble(subset_tree_59) %>%
-    filter(node %in% offspring(subset_tree_59, node_number, type = "tips")) %>%
+  tmp_genes <- as_tibble(tree_59) %>%
+    filter(node %in% offspring(tree_59, node_number, type = "tips")) %>%
     transmute(gene                   = gene,
               Locus_Tag              = Locus_Tag,
               Gene.Tree.Parent.Clade = paste0("n", node_number))
@@ -574,6 +585,12 @@ potential_siderophore_HOGs <- all_loci %>%
 
 potential_siderophore_HOGs <- c(potential_siderophore_HOGs, as.character(gene_colors_2$gene))
 
+
+## Save out annotations for later use
+write.csv(x         = all_loci,
+          file      = annotations_file,
+          row.names = FALSE)
+
 # Plot phylogenetic trees of reassignemnts -------------------------------------
 tree_labels <- do.call(rbind, list(treedata_235,
                                    treedata_1075,
@@ -810,7 +827,6 @@ full_sid_regions <- all_loci %>%
   filter(Locus >= region_locus_start - 5 &
          Locus <= region_locus_end   + 5)
 
-
 ## Plot size of siderophore regions
 high_confidence_region_sizes <- full_sid_regions %>%
   filter(!(bacteria_code %in% iats_codes)) %>%
@@ -833,6 +849,16 @@ high_conf_gene_size_plot <- ggplot(data = high_confidence_region_sizes,
   theme_bw() 
 
 high_conf_gene_size_plot
+
+left_peak_median <- high_confidence_region_sizes %>%
+  filter(region_size_kb < 93) %>%
+  pull(region_size_bp) %>%
+  median()
+
+right_peak_median <- high_confidence_region_sizes %>%
+  filter(region_size_kb > 93) %>%
+  pull(region_size_bp) %>%
+  median()
 
 ## Save out plots
 region_sizes_plot <- plot_list(sid_HOG_density, all_gene_size_plot, high_conf_gene_size_plot)
@@ -944,15 +970,20 @@ gene_network_graph <- as_tbl_graph(co_occurence %>%
 
 ## Gene labels
 pvd1_branch <- c("pvdE_1", "fpvA_1", "pvdD_1", "pvdJ_1", "pvdI_1")
-pvd2_branch <- c("yojI_1", "fpvA_2", "dltA_1", "HP_1", "dltA_2", "sip_1")
-pvd3_branch <- c("HP_3", "HP_589", "aes_1", "solG_1", "dltA_3")
+pvd2_branch <- c("HP_3", "HP_589", "aes_1", "solG_1", "dltA_3")
+pvd3_branch <- c("yojI_1", "fpvA_2", "dltA_1", "HP_1", "dltA_2", "sip_1")
+
+pvd_core    <- c("pvdQ_1", "pvdA_1", "fpvI_1", "fpvR_1", "pvdR_1", "pvdT_1", "opmQ_1",
+                 "pvdP_1", "pvdM_1", "pvdN_1", "pvdO_1", "pvdF_1", "fpvG_1", "fpvH_1", 
+                 "fpvJ_1", "fpvK_1", "fpvC_1", "fpvD_1", "fpvE_1","fpvF_1", "pA2411_1",
+                 "pA2412_1", "pvdH_1", "pvdL_1", "pvdG_1", "pvdS_1", "pvdX_1")
   
 gene_labels <- data.frame(gene = c(pvd1_branch,
                                    pvd2_branch,
                                    pvd3_branch),
                           class = c("PVD Export", "PVD-Fe Import", "NRPS", "NRPS", "NRPS",
-                                    "PVD Export", "PVD-Fe Import", "NRPS", "NRPS", "NRPS", "Reductase",
-                                    "PVD Export", "PVD-Fe Import", "Hydrolase", "NRPS", "NRPS"))
+                                    "PVD Export", "PVD-Fe Import", "Hydrolase", "NRPS", "NRPS",
+                                    "PVD Export", "PVD-Fe Import", "NRPS", "NRPS", "Reductase"))
 
 fancy_network_graph <- gene_network_graph %>%
   activate(edges) %>%
@@ -963,15 +994,22 @@ fancy_network_graph <- gene_network_graph %>%
             by = c("name" = "gene")) %>%
   ggraph(layout = "stress",
          weight = similar) +
-  geom_edge_link(arrow = arrow(length = unit(4, 'mm')), 
+  geom_edge_link(arrow = arrow(length = unit(1, 'mm')), 
                  end_cap = circle(1, 'mm')) +
-  geom_edge_loop(arrow = arrow(length = unit(4, 'mm')), 
+  geom_edge_loop(arrow = arrow(length = unit(1, 'mm')), 
                  end_cap = circle(1, 'mm')) +
   geom_node_point(show.legend = TRUE,
-                  size = 4,
+                  size = 11,
                   mapping = aes(color = class)) +
+  scale_color_discrete(name = "Function",
+                       labels = c("Hydrolysis",
+                                  "Synthesis",
+                                  "Import",
+                                  "Export",
+                                  "Reduction")) +
   geom_node_text(aes(label = name,
                      color = class),
+                 size = 10,
                  repel = TRUE,
                  point.padding = unit(1, "cm"),
                  show.legend = FALSE) +
@@ -999,5 +1037,454 @@ fancy_network_graph <- gene_network_graph %>%
         panel.grid.minor = element_blank(),
         panel.border     = element_blank(),
         panel.background = element_blank(),
-        legend.position = c(0.8, 0.85)) +
+        legend.position = c(0.1, 0.85),
+        legend.title = element_text(size = 50),
+        legend.text = element_text(size = 40)) +
   guides(color = guide_legend(ncol = 1))
+
+fancy_network_graph
+
+ggsave(path     = figure_dir,
+       filename = "figure_3_pangenome_portrait.png",
+       plot     = fancy_network_graph,
+       device   = "png",
+       width    = 15,
+       height   = 20,
+       dpi      = 300)
+
+
+# Look at hypothetical genes in branches ---------------------------------------
+HP_HOGs <- c("HP_1", "HP_3", "HP_589")
+
+HP_anotations <- full_sid_regions %>%
+  filter(HOG_annotation %in% HP_HOGs) %>%
+  group_by(HOG_annotation, DbXrefs) %>%
+  summarise(n = n())
+
+HP_counts <- full_sid_regions %>%
+  filter(HOG_annotation %in% HP_HOGs) %>%
+  group_by(HOG_annotation) %>%
+  summarise(n = n())
+
+HP_dbxrefs <- full_sid_regions %>%
+  filter(HOG_annotation %in% HP_HOGs) %>%
+  select(HOG_annotation, Locus_Tag, DbXrefs, bakta_product) %>%
+  mutate(RefSeq = case_when(grepl("RefSeq:", DbXrefs) ~ sub(".*RefSeq:([^, ]+).*", "\\1", DbXrefs),
+                            .default = NA),
+         SO     = case_when(grepl("SO:", DbXrefs) ~ sub(".*SO:([^, ]+).*", "\\1", DbXrefs),
+                            .default = NA),
+         UniParc = case_when(grepl("UniParc", DbXrefs) ~ sub(".*UniParc:([^, ]+).*", "\\1", DbXrefs),
+                             .default = NA),
+         UniRef_100 = case_when(grepl("UniRef:UniRef100_", DbXrefs) ~ sub(".*UniRef:UniRef100_([^, ]+).*", "\\1", DbXrefs),
+                                .default = NA),
+         UniRef_50  = case_when(grepl("UniRef:UniRef50_", DbXrefs) ~ sub(".*UniRef:UniRef50_([^, ]+).*", "\\1", DbXrefs),
+                                .default = NA),
+         UniRef_90 = case_when(grepl("UniRef:UniRef90_", DbXrefs) ~ sub(".*UniRef:UniRef90_([^, ]+).*", "\\1", DbXrefs),
+                               .default = NA)) %>%
+  select(-DbXrefs) %>%
+  pivot_longer(cols = -c(HOG_annotation, Locus_Tag),
+               values_to = "annotation",
+               names_to  = "database") %>%
+  group_by(HOG_annotation, database, annotation) %>%
+  summarise(n_annotations = n()) %>%
+  left_join(HP_counts,
+            by = "HOG_annotation") %>%
+  rename(n_occurences = n)
+
+top_HP_annotations <- HP_dbxrefs %>%
+  group_by(HOG_annotation, database) %>%
+  filter(n_annotations == max(n_annotations))
+
+
+# Predict PVD type -------------------------------------------------------------
+# Get expected lengths of all the genes
+expected_lengths <- full_sid_regions %>% 
+  group_by(HOG_annotation) %>%
+  summarise(median_size = median(Stop - Start))
+
+# Repair regions
+## TODO why does this even need a genes of interest?
+## ~ remake so all genes are repaired? 
+## ~ then it could happen before pangenome is drawn
+region_repair <- function(split_all_loci, region_boundaries, region_pad, Locus_col,
+                          annotation_col, expected_lengths, genes_of_interest){
+  
+  used_loci         <- NULL
+  repaired_region   <- NULL
+  
+  region_of_interest <- split_all_loci %>%
+    left_join(region_boundaries,
+              by = c("bacteria" = "bacteria",
+                     "Sequence" = "Sequence")) %>%
+    filter(Locus >= region_locus_start - region_pad &
+             Locus <= region_locus_end   + region_pad)
+  
+  # First repair the region considering adjacent genes etc
+  for(Locus in region_of_interest[, Locus_col]){
+    
+    # Add start/end of string to ensure exact regex matches
+    Locus <- paste0("^", Locus, "$")
+    
+    #writeLines(as.character(Locus))
+    #writeLines(as.character(repaired_region))
+    
+    # Get info on the gene I want
+    gene_info     <- region_of_interest[grep(Locus, region_of_interest[, "Locus"]), ]
+    gene          <- gene_info[, annotation_col]
+    gene_length   <- gene_info[, "Stop"] - gene_info[, "Start"]
+    target_length <- unlist(expected_lengths[expected_lengths$"HOG_annotation" == gene, "median_size"])
+    length_padding<- 0.2
+    gene_strand   <- gene_info[, "Strand"]
+    
+    # Check if already assesed
+    if(Locus %in% used_loci){
+      
+      next
+      #writeLines("Locus already used")
+      
+    }
+    
+    #writeLines("Locus not used")
+    # Is the gene one I care about?
+    #if(!(gene %in% genes_of_interest)){
+      
+    #  next
+      # writeLines("Gene not of interest")
+      
+      
+    #}
+    
+    #writeLines("Gene of interest")
+    
+    # Is the length correct?
+    if(gene_length >= target_length * (1 - length_padding) &
+       gene_length <= target_length * (1 + length_padding)){
+      
+      repaired_region <- c(repaired_region, gene)
+      used_loci       <- c(used_loci, Locus)
+      #writeLines("Length Correct")
+      
+      # if incorrect consider adjacent genes  
+      # TODO include special case where we are at the boundaries of a region and therefore
+      # we have no next locus. 
+      # Or we should consider all_loci? 
+    } else {
+      
+      #writeLines("Length incorrect")
+      
+      if(gene_strand == "+"){
+        
+        next_gene_info <- split_all_loci[grep(Locus, split_all_loci[, "Locus"]) + 1, ]
+        #writeLines("Strand +")
+        
+      } else {
+        
+        next_gene_info <- split_all_loci[grep(Locus, split_all_loci[, "Locus"]) - 1, ]
+        #writeLines("Strand -")
+        
+      }
+      
+      # Get info for next locus
+      next_gene_locus  <- paste0("^", next_gene_info[, "Locus"], "$")
+      next_gene        <- next_gene_info[, annotation_col]
+      next_gene_strand <- next_gene_info[, "Strand"]
+      
+      
+      # Check locus hasn't already been used
+      if(next_gene_locus %in% used_loci){
+        
+        next
+        
+      }
+      
+      
+      
+      # Get new length if they were merged
+      new_start <- min(gene_info[, "Start"], next_gene_info[, "Start"])
+      new_stop  <- max(gene_info[, "Stop"], next_gene_info[, "Stop"])
+      
+      combined_length <- new_stop - new_start
+      
+      # Check all atributes match
+      strand_match <- next_gene_strand == gene_strand
+      name_match   <- next_gene == gene | grepl("^HP_\\d+$", next_gene)
+      length_match <- combined_length >= target_length * (1 - length_padding) &
+        combined_length <= target_length * (1 + length_padding)
+      
+      if(strand_match & name_match & length_match){
+        
+        repaired_region <- c(repaired_region, gene)
+        used_loci       <- c(used_loci, Locus, next_gene_locus)
+        #writeLines("Repair with next gene")
+        
+      }
+      
+      
+      
+    }
+    
+    
+    
+  }
+  
+  return(paste0(repaired_region, collapse = ", "))
+  
+  
+}
+
+repaired_regions <- lapply(X                 = split(x = all_loci,
+                                                     f = ~ bacteria),
+                           FUN               = region_repair,
+                           Locus_col         = "Locus",
+                           region_boundaries = region_boundaries,
+                           region_pad        = 5,
+                           annotation_col    = "HOG_annotation",
+                           expected_lengths  = expected_lengths) %>%
+  do.call(rbind, .) %>%
+  data.frame() %>%
+  rownames_to_column(var = "bacteria") %>%
+  rename(siderophore_region = ".")
+
+# Type strains
+pvd_typing <- function(region, core, branch){
+  
+  # Split region into a vector
+  region <- str_split_1(string = region, pattern = ", ")
+  
+  # get region length
+  region_length <- paste0("region_length=", length(region))
+  
+  # Check core presence
+  # find genes in region from catagory
+  ## NB this will pull them out even if they are not adjacent, and if they're in different blocks!
+  present_core <- region[region %in% core]
+  
+  # count how many genes are in the region, and compare to expected
+  n_core <- paste0(length(present_core), "/", length(core))
+  
+  # find if any genes are missing
+  missing_core <- !all(core %in% present_core)
+  
+  ## Which genes are missing?
+  if(missing_core){
+    
+    missing_core <- paste0(core[!(core %in% present_core)], collapse = "~")
+    
+  }
+  
+  ## are any genes duplicated?
+  multiple_core <- any(duplicated(present_core))
+  
+  if(multiple_core){
+    
+    multiple_core <- paste0(present_core[duplicated(present_core)], collapse = "~")
+    
+  }
+  
+  core_result <-  c(paste0("core_length=", n_core),
+                    paste0("core_missing=", missing_core),
+                    paste0("core_multple=", multiple_core))
+  
+  # Check optional branch presence 
+  branch_results <- lapply(names(branch), function(branch_name){
+    
+    # Get genes of interest for the category
+    catagory_genes <- branch[[branch_name]]
+    
+    # find genes in region from catagory
+    ## NB this will pull them out even if they are not adjacent, and if they're in different blocks!
+    present_genes <- region[region %in% catagory_genes]
+    
+    # count how many genes are in the region, and compare to expected
+    n_present <- paste0(length(present_genes), "/", length(catagory_genes))
+    
+    # find if any genes are missing
+    missing_genes <- !all(catagory_genes %in% present_genes)
+    
+    ## Which genes are missing?
+    if(missing_genes){
+      
+      missing_genes <- paste0(catagory_genes[!(catagory_genes %in% present_genes)], collapse = "~")
+      
+    }
+    
+    
+    ## are any genes duplicated?
+    multiple_genes <- any(duplicated(present_genes))
+    
+    if(multiple_genes){
+      
+      multiple_genes <- paste0(present_genes[duplicated(present_genes)], collapse = "~")
+      
+    }
+    
+    # Make output
+    out <- c(paste0(branch_name, "_length=", n_present),
+             paste0(branch_name, "_missing=", missing_genes),
+             paste0(branch_name, "_multple=", multiple_genes))
+    
+    return(paste(out, collapse = ", "))
+  })
+  
+  # Work out pvd_type
+  ## This fails for low qualty predictions 
+  branch_data <- do.call(rbind, branch_results) %>%
+    data.frame() %>%
+    rename(data = ".") %>%
+    filter(grepl("_missing=FALSE", data)) %>%
+    mutate(branch = sub("^([^_]+)_.*", "\\1", data),
+           missing = sub(".*missing=([^,]+).*", "\\1", data))
+  
+  # filter to branches with components
+  branch_data <- do.call(rbind, branch_results) %>%
+    data.frame() %>%
+    rename(data = ".") %>%
+    filter(!grepl("^.*_length=0/.*$", data)) %>%
+    mutate(branch = sub("^([^_]+)_.*", "\\1", data),
+           missing = sub(".*missing=([^,]+).*", "\\1", data))
+  
+  possible_branches <- branch_data %>%
+    pull(branch) %>%
+    unique()
+  
+  branch_missing <-  branch_data %>%
+    pull(missing) %>%
+    unique()
+  
+  # if bits are missing then the missing_ is the name of the genes
+  missing_core   <- !(missing_core == "FALSE")
+  branch_missing <- !(branch_missing == "FALSE") 
+  
+  if(length(possible_branches) == 1){
+    
+    pvd_type <- possible_branches
+    
+    # work out prediction quality
+    ## High quality has core + and branch +
+    if(!missing_core & !branch_missing){
+      
+      quality <- "high"
+      
+      ## Medium quality has core - and branch + 
+    } else if(missing_core & !branch_missing){
+      
+      
+      quality <- "medium"
+      
+      ## Low quality has branch - and core + or - 
+    } else {
+      
+      quality <- "low"
+      
+    }  
+    
+    
+    ## Unknown type if we have no brnach components or multiple components  
+  } else {
+    
+    pvd_type <- "unknown"
+    quality  <- NA
+    
+  }
+  
+  # Make final output
+  out <- c(core_result,
+           branch_results,
+           paste0("pvd_type=", pvd_type),
+           paste0("prediction_quality=", quality))
+  
+  return(paste(out, collapse = ", "))
+  
+}
+
+siderotype_strain_predictions <- repaired_regions %>%
+  rowwise() %>%
+  mutate(region_stats = pvd_typing(region    = siderophore_region,
+                                   core      = pvd_core,
+                                   branch    = list(pvd1 = pvd1_branch,
+                                                    pvd2 = pvd2_branch,
+                                                    pvd3 = pvd3_branch))) %>%
+  separate_wider_delim(region_stats, delim = ", ", names_sep = "_") %>%
+  pivot_longer(cols = starts_with("region_stats"),
+               values_to = "pair") %>%
+  select(-name) %>%
+  separate_wider_delim(pair,
+                       delim = "=",
+                       names = c("key", "value")) %>%
+  pivot_wider(names_from = "key",
+              values_from = "value") 
+
+## get summary stats
+pvd_strain_stats <- siderotype_strain_predictions %>%
+  group_by(pvd_type, prediction_quality) %>%
+  summarise(n   = n()) %>%
+  mutate(prediction_quality = factor(prediction_quality, levels = c("high", "medium", "low")),
+         per = n/477 * 100) %>%
+  arrange(pvd_type, prediction_quality,
+          by.groups = TRUE)
+
+## stats combining all prediction types together
+overall_strain_stats <- pvd_strain_stats %>%
+  group_by(pvd_type) %>%
+  summarise(n = sum(n),
+            per = n/477 * 100)
+
+# Type unique regions 
+siderotype_region_predictions <- repaired_regions %>%
+  select(siderophore_region) %>%
+  distinct() %>%
+  rowwise() %>%
+  mutate(region_stats = pvd_typing(region    = siderophore_region,
+                                   core      = pvd_core,
+                                   branch    = list(pvd1 = pvd1_branch,
+                                                    pvd2 = pvd2_branch,
+                                                    pvd3 = pvd3_branch))) %>%
+  separate_wider_delim(region_stats, delim = ", ", names_sep = "_") %>%
+  pivot_longer(cols = starts_with("region_stats"),
+               values_to = "pair") %>%
+  select(-name) %>%
+  separate_wider_delim(pair,
+                       delim = "=",
+                       names = c("key", "value")) %>%
+  pivot_wider(names_from = "key",
+              values_from = "value") 
+
+## get summary stats
+pvd_region_stats <- siderotype_region_predictions %>%
+  group_by(pvd_type, prediction_quality) %>%
+  summarise(n   = n(),
+            per = n/276 * 100) %>%
+  mutate(prediction_quality = factor(prediction_quality, levels = c("high", "medium", "low"))) %>%
+  arrange(pvd_type, prediction_quality,
+          by.groups = TRUE)
+
+## stats combining all prediction types together
+overall_region_stats <- pvd_region_stats %>%
+  group_by(pvd_type) %>%
+  summarise(n = sum(n),
+            per = n/sum(pvd_region_stats$n) * 100)
+
+# Check predictions of IATS strains
+known_predictions <- siderotype_strain_predictions %>%
+  left_join(all_loci %>%
+              select(bacteria, bacteria_code) %>%
+              distinct(),
+            by = c("bacteria" = "bacteria")) %>%
+  filter(bacteria_code %in% known_siderotypes$Strain.ID) %>%
+  left_join(known_siderotypes,
+            by = c("bacteria_code" = "Strain.ID")) %>%
+  transmute(bacteria            = bacteria,
+            known_siderotype    = siderotype,
+            predicted_siderotpe = as.numeric(sub("pvd", "", pvd_type)), 
+            prediction_quality  = prediction_quality) %>%
+  arrange(known_siderotype)
+
+known_accuracy <- known_predictions %>%
+  mutate(correct = known_siderotype == predicted_siderotpe) %>%
+  group_by(correct) %>%
+  summarise(n = n())
+
+
+
+
+
