@@ -7,15 +7,14 @@ library(tidygraph)      # Network plot
 library(ggraph)         # Network plotting, tidygraph companion
 
 
-
 # Options ----------------------------------------------------------------------
 ## Inputs
 HOG_file               <- "./data/orthofinder/N0.tsv"
-bacteria_metadata_file <- "./raw_data/pgdb_strain_summary.tsv"
+#bacteria_metadata_file <- "./raw_data/pgdb_strain_summary.tsv"
 query_metadata_file    <- "./raw_data/20240711_smith_et_al_Genes.csv"
 bakta_annotations      <- "./data/bakta/compiled_tsvs.csv"
 iats_siderotypes_file  <- "./raw_data/iats_siderotypes.csv"
-
+bacteria_names_file    <- "./data/bakta/bacteria.txt"
 
 #iats_siderotypes_file  <- "./raw_data/iats_siderotypes.csv"
 
@@ -24,10 +23,15 @@ figure_dir       <- "./data/figures/"
 annotations_file <- "./data/reannotated_genomes"
 
 # Load data --------------------------------------------------------------------
-## Load metadata from previously known genes
+# Note 464 PGDB + 13 IATS = 477
+# TODO 11 bacteria have a name of NA, but a bacteria code. Find out why
+#      10394 is in gffs but not bacterial metadata
+
+# Load metadata from previously known genes
 query_metadata <- read.csv(file = query_metadata_file)
 
-## Load gff files
+# Load gff files
+## Has 477 correctly
 gffs <- read.csv(bakta_annotations) %>%
   rename(bacteria_code = Organism) %>%
   filter(Type == "cds") %>%
@@ -53,14 +57,22 @@ gffs <- read.csv(bakta_annotations) %>%
                                    bakta_product,
                                    bakta_gene)) 
 
-## Load bacteria metadata
-bacteria_metadata <- read.delim(bacteria_metadata_file) %>%
-  select(!(Number.of.genes:GTF.format.annotations...file.name)) %>%
-  select(!c(Species, Database.version)) %>%
-  rename(bacteria = Full.organism.name)
+# Load bacteria metadata
+# baacteria_metadata is missing data on 11 strains, so switched to using bacteria_names_file
+# instead, which I named myself
+#bacteria_metadata <- read.delim(bacteria_metadata_file) %>%
+#  select(!(Number.of.genes:GTF.format.annotations...file.name)) %>%
+#  select(!c(Species, Database.version)) %>%
+#  rename(bacteria = Full.organism.name)
 
+bacteria_codes <- read.delim(file   = bacteria_names_file,
+                             header = FALSE,
+                             col.names = "bacteria") %>%
+  mutate(bacteria_code = as.numeric(sub(pattern     = ".*_(\\d+)$",
+                                        replacement = "\\1",
+                                        x           = bacteria)))
 
-## Load orthofinder annotations
+# Load orthofinder annotations
 HOGs <- read.delim(file = HOG_file,
                    header = TRUE,
                    sep = "\t") %>%
@@ -72,19 +84,20 @@ HOGs <- read.delim(file = HOG_file,
   unnest(Locus_Tag) %>%
   select(-Loci)
 
-## Merge assignments into one table
-## NB I have deviated here by using bacteria_metadata instead of codes
-## This changes the "bacteria" field to be their full names
-## This could be better or it could break something
-all_loci <- gffs %>%
+# Merge assignments into one table
+# NB I have deviated here by using bacteria_metadata instead of codes
+# This changes the "bacteria" field to be their full names
+# This could be better or it could break something
+## 467 here?
+all_loci <- gffs %>% # 477 here
   left_join(HOGs,
-            by = c("Locus_Tag" = "Locus_Tag")) %>%
-  left_join(bacteria_metadata,
-            by = c("bacteria_code" = "Strain.ID"))
+            by = c("Locus_Tag" = "Locus_Tag")) %>% # 477 here
+  left_join(bacteria_codes,
+            by = c("bacteria_code" = "bacteria_code")) # 477 here
 
-## genes in an OG of 1 member are lost from N0.tsv, as you can't make a HOG from one gene
-## I need to add them as HOGs, with a number 
-## TODO some OGs are also NA, not sure I need them but if so add here
+# genes in an OG of 1 member are lost from N0.tsv, as you can't make a HOG from one gene
+# I need to add them as HOGs, with a number 
+# TODO some OGs are also NA, not sure I need them but if so add here
 max_HOG <- max(sub("N0.HOG", "", all_loci$HOG),
                na.rm = TRUE)
 
@@ -103,7 +116,7 @@ all_loci <- all_loci %>%
                          is.na(HOG)        ~ manual_HOG)) %>%
   select(-c(manual_HOG))
 
-## Load info on IATS strains (previously siderotyped)
+# Load info on IATS strains (previously siderotyped)
 known_siderotypes <- read.csv(iats_siderotypes_file) %>%
   filter(!is.na(siderotype))
 
@@ -179,7 +192,6 @@ HOG_annotation <- all_loci %>%
 all_loci <- all_loci %>%
   left_join(HOG_annotation,
             by = c("HOG" = "HOG"))
-
 
 # Section 1 summary stats ------------------------------------------------------
 n_ORFs <- nrow(all_loci)
@@ -983,7 +995,7 @@ gene_labels <- data.frame(gene = c(pvd1_branch,
                                    pvd3_branch),
                           class = c("PVD Export", "PVD-Fe Import", "NRPS", "NRPS", "NRPS",
                                     "PVD Export", "PVD-Fe Import", "Hydrolase", "NRPS", "NRPS",
-                                    "PVD Export", "PVD-Fe Import", "NRPS", "NRPS", "Reductase"))
+                                    "PVD Export", "PVD-Fe Import", "NRPS", "NRPS", "NRPS", "Reductase"))
 
 fancy_network_graph <- gene_network_graph %>%
   activate(edges) %>%
@@ -1052,6 +1064,7 @@ ggsave(path     = figure_dir,
        height   = 20,
        dpi      = 300)
 
+new_siderophore_genes <- unique(c(co_occurence$gene_1, co_occurence$gene_2))
 
 # Look at hypothetical genes in branches ---------------------------------------
 HP_HOGs <- c("HP_1", "HP_3", "HP_589")
@@ -1397,14 +1410,14 @@ pvd_typing <- function(region, core, branch){
   
 }
 
-siderotype_strain_predictions <- repaired_regions %>%
+siderotype_strain_predictions <- repaired_regions %>% 
   rowwise() %>%
   mutate(region_stats = pvd_typing(region    = siderophore_region,
                                    core      = pvd_core,
                                    branch    = list(pvd1 = pvd1_branch,
                                                     pvd2 = pvd2_branch,
-                                                    pvd3 = pvd3_branch))) %>%
-  separate_wider_delim(region_stats, delim = ", ", names_sep = "_") %>%
+                                                    pvd3 = pvd3_branch))) %>% 
+  separate_wider_delim(region_stats, delim = ", ", names_sep = "_") %>%       
   pivot_longer(cols = starts_with("region_stats"),
                values_to = "pair") %>%
   select(-name) %>%
@@ -1412,7 +1425,11 @@ siderotype_strain_predictions <- repaired_regions %>%
                        delim = "=",
                        names = c("key", "value")) %>%
   pivot_wider(names_from = "key",
-              values_from = "value") 
+              values_from = "value") %>% #
+  left_join(all_loci %>%
+              select(bacteria, bacteria_code) %>%
+              distinct(),
+            by = "bacteria")
 
 ## get summary stats
 pvd_strain_stats <- siderotype_strain_predictions %>%
@@ -1453,7 +1470,7 @@ siderotype_region_predictions <- repaired_regions %>%
 pvd_region_stats <- siderotype_region_predictions %>%
   group_by(pvd_type, prediction_quality) %>%
   summarise(n   = n(),
-            per = n/276 * 100) %>%
+            per = n/226 * 100) %>%
   mutate(prediction_quality = factor(prediction_quality, levels = c("high", "medium", "low"))) %>%
   arrange(pvd_type, prediction_quality,
           by.groups = TRUE)
@@ -1466,10 +1483,10 @@ overall_region_stats <- pvd_region_stats %>%
 
 # Check predictions of IATS strains
 known_predictions <- siderotype_strain_predictions %>%
-  left_join(all_loci %>%
-              select(bacteria, bacteria_code) %>%
-              distinct(),
-            by = c("bacteria" = "bacteria")) %>%
+#  left_join(all_loci %>%
+#              select(bacteria, bacteria_code) %>%
+#              distinct(),
+#            by = c("bacteria" = "bacteria")) %>%
   filter(bacteria_code %in% known_siderotypes$Strain.ID) %>%
   left_join(known_siderotypes,
             by = c("bacteria_code" = "Strain.ID")) %>%
@@ -1485,6 +1502,373 @@ known_accuracy <- known_predictions %>%
   summarise(n = n())
 
 
+# Map type to all genes ---------------------------------------------------------
+# TODO I made a change to how bacteria_code is included in all_loci, as previously some were missing
+#      need to remake these graphs as they may now be imnproved
+# TODO also need to tidy how I add in bacteria_code into the heatmaps etc, because i've tidied it previosuly
+OGs_to_inspect <- all_loci %>%
+  filter(HOG_annotation %in% new_siderophore_genes) %>%
+  select(OG, HOG, HOG_annotation) %>%
+  distinct() %>%
+  arrange(OG)
+
+# Make new dataframe of data to link to trees
+extra_treedata <- all_loci %>%
+  left_join(siderotype_strain_predictions,
+            by = c("bacteria"      = "bacteria",
+                   "bacteria_code" = "bacteria_code")) %>%
+  #select(bacteria, Locus_Tag, siderotype_prediction)
+  transmute(bacteria              = bacteria,
+            bacteria_code         = bacteria_code,
+            Locus                 = Locus,
+            Locus_Tag             = Locus_Tag,
+            siderotype_prediction = case_when(is.na(pvd_type) ~ "Unknown",
+                                              .default = pvd_type),
+            in_region             = factor(Locus_Tag %in% full_sid_regions$Locus_Tag),
+            IATS                  = factor(bacteria_code %in% iats_codes)) %>%
+  mutate(siderotype_prediction = factor(sub("pvd", "", siderotype_prediction), levels = c("1", "2", "3", "Unknown")))
 
 
+# Make loads of trees
+OG_count <- 1
+n_OGs    <- length(unique(OGs_to_inspect$OG))
+
+for(OG in unique(OGs_to_inspect$OG)){
+  
+  writeLines(OG)
+  
+  raw_tree <- read.newick(file = paste0("./data/orthofinder/Resolved_Gene_Trees/raw_treefiles/", OG, "_tree.txt"))
+  
+  # add in siderotypes
+  treedata <- raw_tree %>%
+    as_tibble() %>%
+    mutate(Locus_Tag     = sub("^.*_([^_]+_[^_]+)$", "\\1", label),
+           bacteria_code = sub("^(\\d+)_.*$", "\\1", Locus_Tag),
+           in_region     = Locus_Tag %in% full_sid_regions$Locus_Tag) %>%
+    left_join(siderotype_strain_predictions %>%
+                mutate(bacteria_code = as.character(bacteria_code)),
+              by = c("bacteria_code" = "bacteria_code")) %>% 
+    left_join(all_loci,
+              by = c("Locus_Tag" = "Locus_Tag",
+                     "bacteria" = "bacteria")) %>%
+    select(parent, node, branch.length, label, bacteria, Locus_Tag, HOG, pvd_type, HOG_annotation) %>%
+    mutate(label = case_when(grepl("^n\\d+$", label) ~ label,
+                             .default = Locus_Tag))
+  
+  # Split out into HOGs
+  HOGs_in_OG <- OGs_to_inspect %>%
+    filter(OG == UQ(OG)) %>%
+    select(HOG, HOG_annotation) %>%
+    distinct()
+  
+  for(i in 1:nrow(HOGs_in_OG)){
+    
+    HOG_annotation <- HOGs_in_OG[i, "HOG_annotation"]
+    HOG_of_interest<- HOGs_in_OG[i, "HOG"]
+    
+    # find most recent common ancestor 
+    tips <- treedata %>%
+      filter(HOG == UQ(HOG_of_interest)) %>%
+      pull(node)
+    
+    parent_node <- getMRCA(phy = as.phylo(treedata),
+                           tip = tips)
+    
+    # subset tree
+    subset_tree <- tree_subset(tree = as.treedata(treedata),
+                               node = parent_node,
+                               levels_back = 0) %>%
+      as_tibble()
+    
+    ## redo with aplot
+    tree <- ggtree(tr       = as.treedata(subset_tree),
+                   layout   = "rect",
+                   x        = length) +
+      geom_tippoint(aes(color = HOG_annotation)) +
+      scale_color_discrete(name = "Gene\nAnnotation") +
+      labs(title = paste0(HOG_of_interest, " - ", HOG_annotation)) +
+      scale_x_continuous(limits = c(0, 2.5)) +
+      theme_tree2()
+    
+    
+    ## needs to be long for geom_tile
+    ## needs to be filtered otherwise takes an age to plot
+    long_extra_treedata <- extra_treedata %>%
+      filter(Locus_Tag %in% subset_tree$Locus_Tag) %>%
+      select(-c(bacteria, Locus)) %>%
+      pivot_longer(cols      = -c(bacteria_code, Locus_Tag),
+                   names_to  = "metric",
+                   values_to = "value")
+    
+    type_data <- long_extra_treedata %>%
+      filter(metric == "siderotype_prediction") %>%
+      mutate(value = factor(value,
+                            levels = c("1", "2", "3", "Unknown")))
+    
+    
+    type_heatmap <- ggplot(data = type_data,
+                           mapping = aes(x = metric,
+                                         y = Locus_Tag,
+                                         fill = value)) +
+      geom_tile() +
+      scale_fill_manual(name = "Predicted\nSiderotype",
+                       #limits = c("1", "2", "3", "Unknown"),
+                       values = c("#56203D", "#56638A", "#53DD6C", "grey"),
+                       drop   = FALSE) +
+      theme(axis.text = element_blank(),
+            axis.title = element_blank(),
+            axis.ticks = element_blank(),
+            panel.background = element_blank())
+    
+    location_data <- long_extra_treedata %>%
+      filter(metric == "in_region") %>%
+      mutate(value = factor(value,
+                            levels = c("TRUE", "FALSE")))
+    
+    location_heatmap <- ggplot(data = location_data,
+                               mapping = aes(x = metric,
+                                             y = Locus_Tag,
+                                             fill = value)) +
+      geom_tile() +
+      scale_fill_discrete(name = "In\nRegion",
+                          limits = c("TRUE", "FALSE"),
+                          labels = c("Yes", "No")) +
+      theme(axis.text = element_blank(),
+            axis.title = element_blank(),
+            axis.ticks = element_blank(),
+            panel.background = element_blank())
+    
+    IATS_data <- long_extra_treedata %>%
+      filter(metric == "IATS") %>%
+      mutate(value = factor(value,
+                            levels = c("TRUE", "FALSE")))
+    
+    IATS_heatmap <- ggplot(data = IATS_data,
+                           mapping = aes(x = metric,
+                                         y = Locus_Tag,
+                                         fill = value)) +
+      geom_tile() +
+      scale_fill_manual(name = "Fragmented",
+                          limits = c("TRUE", "FALSE"),
+                          labels = c("Yes", "No"),
+                          values = c("grey", "#6E75A8")) +
+      theme(axis.text = element_blank(),
+            axis.title = element_blank(),
+            axis.ticks = element_blank(),
+            panel.background = element_blank())
+    
+    #library(aplot)
+    
+    full_tree <- type_heatmap %>%
+      insert_left(tree, width = 10) %>%
+      insert_right(location_heatmap, width = 0.2) %>%
+      insert_right(IATS_heatmap, width = 0.2)
+    
+    # Save tree
+    ggsave(filename = paste0(HOG_annotation, "_siderotype_tree.png"),
+           plot     = full_tree,
+           path     = paste0(figure_dir, "supplementary/siderotype_trees"),
+           width    = 30, 
+           height   = 20,
+           units    = "cm",
+           limitsize = FALSE)
+    
+    
+  }
+  
+  # Counter
+  writeLines(paste0("Completed ", OG_count, "/", n_OGs))
+  OG_count <- OG_count + 1
+  
+}
+
+# 
+
+
+# Make nice figure of type mapped to genes of interest -------------------------
+diverging_genes <- c("pvdM_1", "fpvG_1", "pvdF_1", "pvdP_1", "pvdO_1",
+                     "fpvI_1", "pvdA_1", "pvdS_1", "fpvR_1", "pvdN_1")
+
+OGs_to_inspect <- all_loci %>%
+  filter(HOG_annotation %in% c(diverging_genes)) %>%
+  select(OG, HOG, HOG_annotation) %>%
+  distinct() %>%
+  arrange(OG)
+
+# Find scale boundaries
+max_length <- as.numeric("")
+for(i in 1:length(unique(OGs_to_inspect$OG))){
+  
+  OG <- unique(OGs_to_inspect$OG)[i]
+  
+  tree_length <- read.newick(file = paste0("./data/orthofinder/Resolved_Gene_Trees/raw_treefiles/", OG, "_tree.txt")) %>%
+    as_tibble() %>%
+    pull(branch.length) %>%
+    max(na.rm = TRUE)
+  
+  max_length[i] <- tree_length
+  
+  
+}
+scale_upper <- ceiling(max(max_length))
+scale_upper <- 0.8
+
+# Make loads of trees
+OG_count <- 1
+n_OGs    <- length(unique(OGs_to_inspect$OG))
+
+for(OG in unique(OGs_to_inspect$OG)){
+  
+  writeLines(OG)
+  
+  raw_tree <- read.newick(file = paste0("./data/orthofinder/Resolved_Gene_Trees/raw_treefiles/", OG, "_tree.txt"))
+  
+  # add in siderotypes
+  treedata <- raw_tree %>%
+    as_tibble() %>%
+    mutate(Locus_Tag     = sub("^.*_([^_]+_[^_]+)$", "\\1", label),
+           bacteria_code = sub("^(\\d+)_.*$", "\\1", Locus_Tag),
+           in_region     = Locus_Tag %in% full_sid_regions$Locus_Tag) %>%
+    left_join(siderotype_strain_predictions %>%
+                mutate(bacteria_code = as.character(bacteria_code)),
+              by = c("bacteria_code" = "bacteria_code")) %>% 
+    left_join(all_loci,
+              by = c("Locus_Tag" = "Locus_Tag",
+                     "bacteria" = "bacteria")) %>%
+    select(parent, node, branch.length, label, bacteria, Locus_Tag, HOG, pvd_type, HOG_annotation) %>%
+    mutate(label = case_when(grepl("^n\\d+$", label) ~ label,
+                             .default = Locus_Tag))
+  
+  # Split out into HOGs
+  HOGs_in_OG <- OGs_to_inspect %>%
+    filter(OG == UQ(OG)) %>%
+    select(HOG, HOG_annotation) %>%
+    distinct()
+  
+  for(i in 1:nrow(HOGs_in_OG)){
+    
+    HOG_annotation <- HOGs_in_OG[i, "HOG_annotation"]
+    HOG_of_interest<- HOGs_in_OG[i, "HOG"]
+    
+    # find most recent common ancestor 
+    tips <- treedata %>%
+      filter(HOG == UQ(HOG_of_interest)) %>%
+      pull(node)
+    
+    parent_node <- getMRCA(phy = as.phylo(treedata),
+                           tip = tips)
+    
+    # subset tree
+    subset_tree <- tree_subset(tree = as.treedata(treedata),
+                               node = parent_node,
+                               levels_back = 0) %>%
+      as_tibble()
+    
+    ## redo with aplot
+    tree <- ggtree(tr       = as.treedata(subset_tree),
+                   layout   = "rect",
+                   x        = length) +
+      scale_color_discrete(name = "Gene\nAnnotation") +
+      labs(title = HOG_annotation) +
+      scale_x_continuous(limits = c(0, scale_upper)) +
+      scale_y_continuous(expand = c(0.01, 0.01)) +
+      theme_tree2()
+    
+    
+    ## needs to be long for geom_tile
+    ## needs to be filtered otherwise takes an age to plot
+    long_extra_treedata <- extra_treedata %>%
+      filter(Locus_Tag %in% subset_tree$Locus_Tag) %>%
+      select(-c(bacteria, Locus)) %>%
+      pivot_longer(cols      = -c(bacteria_code, Locus_Tag),
+                   names_to  = "metric",
+                   values_to = "value")
+    
+    type_data <- long_extra_treedata %>%
+      filter(metric == "siderotype_prediction") %>%
+      mutate(value = factor(value,
+                            levels = c("1", "2", "3", "Unknown")))
+    
+    
+    type_heatmap <- ggplot(data = type_data,
+                           mapping = aes(x = metric,
+                                         y = Locus_Tag,
+                                         fill = value)) +
+      geom_tile(show.legend = FALSE) +
+      scale_fill_manual(name = "Predicted\nSiderotype",
+                        values = c("#56203D", "#56638A", "#53DD6C", "grey"),
+                        drop   = FALSE) +
+      theme(axis.text = element_blank(),
+            axis.title = element_blank(),
+            axis.ticks = element_blank(),
+            panel.background = element_blank())
+    
+
+    full_tree <- type_heatmap %>%
+      insert_left(tree, width = 10)
+    
+    # Store for use in multi-figure
+    assign(x = paste0(HOG_annotation, "_tmp_tree"),
+           value = full_tree)
+    
+    
+  }
+  
+  # Counter
+  OG_count <- OG_count + 1
+  
+}
+
+
+# combine them all together
+diverginng_genes_plot <- plot_list(fpvG_1_tmp_tree, pvdM_1_tmp_tree, pvdO_1_tmp_tree, pvdP_1_tmp_tree, pvdF_1_tmp_tree,
+                                   pvdN_1_tmp_tree, fpvI_1_tmp_tree, fpvR_1_tmp_tree, pvdA_1_tmp_tree, pvdS_1_tmp_tree,
+                                   ncol = 5,
+                                   nrow = 2)
+
+ggsave(filename = "diverging_genes.png",
+       plot     = diverginng_genes_plot,
+       path     = paste0(figure_dir, "supplementary/"),
+       width    = 30, 
+       height   = 20,
+       units    = "cm",
+       limitsize = FALSE)
+
+# Save out loci for NRPS transformer -------------------------------------------
+typed_bacteria <- siderotype_strain_predictions %>%
+  filter(pvd_type != "unknown") %>%
+  pull(bacteria)
+
+nrps_loci <- full_sid_regions %>%
+  ungroup() %>%
+  filter(bacteria %in% typed_bacteria) %>%
+  select(bacteria_code, Locus_Tag, HOG_annotation)
+
+n_bacteria <- length(unique(nrps_loci$bacteria))
+counter    <- 0
+
+for(bacteria_code in unique(nrps_loci$bacteria_code)){
+  
+  ## Get loci for bacteria
+  loci <- nrps_loci %>%
+    filter(bacteria == UQ(bacteria)) %>%
+    pull(Locus_Tag)
+  
+  ## Save out
+  write.table(x         = loci,
+              file      = paste0("./data/NRPS_transformer/loci_ids/", bacteria, "_nrps_loci.txt"),
+              row.names = FALSE,
+              col.names = FALSE,
+              quote     = FALSE)
+  
+  ## progress bar
+  counter  <- counter + 1
+  progress <- round(counter/n_bacteria * 100, 2)
+  
+  writeLines(paste0(progress, "% complete"))
+  
+}
+
+
+# Save out loci for HMM-building -----------------------------------------------
 
