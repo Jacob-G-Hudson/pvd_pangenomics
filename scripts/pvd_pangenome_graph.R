@@ -595,15 +595,6 @@ potential_siderophore_HOGs <- all_loci %>%
   pull(HOG_annotation) %>%
   unique()
 
-potential_siderophore_HOGs <- c(potential_siderophore_HOGs, as.character(gene_colors_2$gene))
-
-
-## Save out annotations for later use
-write.csv(x         = all_loci,
-          file      = annotations_file,
-          row.names = FALSE)
-
-# Plot phylogenetic trees of reassignemnts -------------------------------------
 tree_labels <- do.call(rbind, list(treedata_235,
                                    treedata_1075,
                                    treedata_4708,
@@ -611,15 +602,24 @@ tree_labels <- do.call(rbind, list(treedata_235,
   select(label, Locus_Tag) %>%
   filter(!grepl("^n.*$", label))
 
-## Make new colour pallet 
-## TODO  move this up to where the pallet is made at the start, so it is included in my pvdY tree
-genes <- all_loci %>%
+potential_siderophore_HOGs_from_unclear <- all_loci %>%
   filter(Locus_Tag %in% tree_labels$Locus_Tag) %>%
   pull(HOG_annotation) %>%
   unique() %>%
   sort()
 
-gene_colors_2 <- data.frame(gene = genes,
+potential_siderophore_HOGs <- unique(c(potential_siderophore_HOGs, potential_siderophore_HOGs_from_unclear))
+
+unique(unclear_reassignemtns$new_annotation)
+## Save out annotations for later use
+write.csv(x         = all_loci,
+          file      = annotations_file,
+          row.names = FALSE)
+
+# Plot phylogenetic trees of reassignemnts -------------------------------------
+## Make new colour pallet 
+## TODO  move this up to where the pallet is made at the start, so it is included in my pvdY tree
+gene_colors_2 <- data.frame(gene = potential_siderophore_HOGs_from_unclear,
                             color = c("#F28500", # dltA_1,
                                       "#FF7F50", # dltA_2
                                       "#b7410e" , # dltA_3
@@ -638,11 +638,12 @@ gene_colors_2 <- data.frame(gene = genes,
                                       "#801818", # solG_2,
                                       "#0FA3B1", # viuB
                                       "#BBBE64")) %>%# yojI_1 
-  mutate(gene = factor(gene, levels = genes),
+  mutate(gene = factor(potential_siderophore_HOGs_from_unclear,
+                       levels = potential_siderophore_HOGs_from_unclear),
          color= factor(color, levels = color))
 
 ## Make heatmapt of new assignments
-new_assigments_data <- all_loci_2 %>%
+new_assigments_data <- all_loci %>%
   filter(Locus_Tag %in% tree_labels$Locus_Tag) %>%
   select(Locus_Tag, HOG_annotation) %>%
   left_join(tree_labels,
@@ -753,8 +754,8 @@ sid_HOG_density
 region_sizes <- all_loci %>%
   filter(HOG_annotation %in% potential_siderophore_HOGs) %>%
   filter(!(bacteria_code %in% iats_codes)) %>%
-  select(bacteria, Locus, Start, Stop, HOG_annotation) %>%
-  group_by(bacteria) %>%
+  select(bacteria_code, Locus, Start, Stop, HOG_annotation) %>%
+  group_by(bacteria_code) %>%
   filter(Locus == min(Locus) |
            Locus == max(Locus)) %>%
   summarise(region_size_bp = max(Start, Stop) - min(Start, Stop),
@@ -776,8 +777,8 @@ all_gene_size_plot
 ## Identify genes always in the region
 sid_genes_in_region <- all_loci %>%
   filter(HOG_annotation %in% potential_siderophore_HOGs) %>%
-  select(bacteria, Sequence, HOG_annotation, HOG, Locus, Start, Stop) %>%
-  group_by(bacteria, Sequence) %>%
+  select(bacteria_code, Sequence, HOG_annotation, HOG, Locus, Start, Stop) %>%
+  group_by(bacteria_code, Sequence) %>%
   arrange(Locus) %>%
   mutate(distance_to_next_sid = (lead(Locus, 1) - Locus)/5 - 1,
          distance_to_prev_sid = (Locus - lag(Locus, 1))/5 - 1) %>%
@@ -818,7 +819,7 @@ confident_sid_orthogroups <- sid_genes_in_region %>%
 ## Define siderophore region boundaries
 region_boundaries <- all_loci %>%                         
   filter(HOG_annotation %in% confident_sid_orthogroups) %>%
-  group_by(bacteria, Sequence) %>%
+  group_by(bacteria_code, Sequence) %>%
   mutate(distance_to_next_sid = (lead(Locus, 1) - Locus)/5,
          distance_to_prev_sid = (Locus - lag(Locus, 1))/5) %>%
   rowwise() %>%
@@ -826,24 +827,25 @@ region_boundaries <- all_loci %>%
          distance_to_nearest_sid  = min(distance_to_next_sid, distance_to_prev_sid, na.rm = TRUE)) %>%
   ungroup() %>%
   filter(distance_to_nearest_sid < 3) %>%
-  group_by(bacteria, Sequence) %>%
+  group_by(bacteria_code, Sequence) %>%
   summarise(region_locus_start = min(Locus),
             region_locus_end   = max(Locus))
 
 ## define full siderophore region, containing all genes
 full_sid_regions <- all_loci %>%
   left_join(region_boundaries,
-            by = c("bacteria" = "bacteria",
+            by = c("bacteria_code" = "bacteria_code",
                    "Sequence" = "Sequence")) %>%
-  group_by(bacteria, Sequence) %>%
+  group_by(bacteria_code, Sequence) %>%
   filter(Locus >= region_locus_start - 5 &
          Locus <= region_locus_end   + 5)
 
 ## Plot size of siderophore regions
+### TODO sum regions in different contigs? Or split them?
 high_confidence_region_sizes <- full_sid_regions %>%
   filter(!(bacteria_code %in% iats_codes)) %>%
-  select(bacteria, Locus, Start, Stop, HOG_annotation) %>%
-  group_by(bacteria) %>%
+  select(bacteria_code, Locus, Start, Stop, HOG_annotation) %>%
+  group_by(bacteria_code) %>%
   filter(Locus == min(Locus) |
            Locus == max(Locus)) %>%
   summarise(region_size_bp = max(Start, Stop) - min(Start, Stop),
@@ -913,7 +915,7 @@ region_invert <- function(region){
 
 ## Get all possible edges 
 gene_pairs <- full_sid_regions %>%
-  group_by(bacteria, Sequence) %>%
+  group_by(bacteria_code, Sequence) %>%
   mutate(position_in_region = Locus - min(Locus),
          annotation_with_position = paste0(HOG_annotation, ":", Locus - min(Locus))) %>%
   summarise(region_contents = paste0(annotation_with_position, collapse = ", "),
@@ -1120,14 +1122,14 @@ expected_lengths <- full_sid_regions %>%
 ## ~ remake so all genes are repaired? 
 ## ~ then it could happen before pangenome is drawn
 region_repair <- function(split_all_loci, region_boundaries, region_pad, Locus_col,
-                          annotation_col, expected_lengths, genes_of_interest){
+                          annotation_col, expected_lengths){
   
   used_loci         <- NULL
   repaired_region   <- NULL
   
   region_of_interest <- split_all_loci %>%
     left_join(region_boundaries,
-              by = c("bacteria" = "bacteria",
+              by = c("bacteria_code" = "bacteria_code",
                      "Sequence" = "Sequence")) %>%
     filter(Locus >= region_locus_start - region_pad &
              Locus <= region_locus_end   + region_pad)
@@ -1246,7 +1248,7 @@ region_repair <- function(split_all_loci, region_boundaries, region_pad, Locus_c
 }
 
 repaired_regions <- lapply(X                 = split(x = all_loci,
-                                                     f = ~ bacteria),
+                                                     f = ~ bacteria_code),
                            FUN               = region_repair,
                            Locus_col         = "Locus",
                            region_boundaries = region_boundaries,
@@ -1255,7 +1257,8 @@ repaired_regions <- lapply(X                 = split(x = all_loci,
                            expected_lengths  = expected_lengths) %>%
   do.call(rbind, .) %>%
   data.frame() %>%
-  rownames_to_column(var = "bacteria") %>%
+  rownames_to_column(var = "bacteria_code") %>%
+  mutate(bacteria_code = as.numeric(bacteria_code)) %>%
   rename(siderophore_region = ".")
 
 # Type strains
@@ -1395,7 +1398,7 @@ pvd_typing <- function(region, core, branch){
     ## Unknown type if we have no brnach components or multiple components  
   } else {
     
-    pvd_type <- "unknown"
+    pvd_type <- "Unknown"
     quality  <- NA
     
   }
@@ -1429,7 +1432,7 @@ siderotype_strain_predictions <- repaired_regions %>%
   left_join(all_loci %>%
               select(bacteria, bacteria_code) %>%
               distinct(),
-            by = "bacteria")
+            by = "bacteria_code")
 
 ## get summary stats
 pvd_strain_stats <- siderotype_strain_predictions %>%
@@ -1515,11 +1518,9 @@ OGs_to_inspect <- all_loci %>%
 # Make new dataframe of data to link to trees
 extra_treedata <- all_loci %>%
   left_join(siderotype_strain_predictions,
-            by = c("bacteria"      = "bacteria",
-                   "bacteria_code" = "bacteria_code")) %>%
+            by = c("bacteria_code" = "bacteria_code")) %>%
   #select(bacteria, Locus_Tag, siderotype_prediction)
-  transmute(bacteria              = bacteria,
-            bacteria_code         = bacteria_code,
+  transmute(bacteria_code         = bacteria_code,
             Locus                 = Locus,
             Locus_Tag             = Locus_Tag,
             siderotype_prediction = case_when(is.na(pvd_type) ~ "Unknown",
@@ -1595,7 +1596,7 @@ for(OG in unique(OGs_to_inspect$OG)){
     ## needs to be filtered otherwise takes an age to plot
     long_extra_treedata <- extra_treedata %>%
       filter(Locus_Tag %in% subset_tree$Locus_Tag) %>%
-      select(-c(bacteria, Locus)) %>%
+      select(-Locus) %>%
       pivot_longer(cols      = -c(bacteria_code, Locus_Tag),
                    names_to  = "metric",
                    values_to = "value")
@@ -1739,6 +1740,7 @@ for(OG in unique(OGs_to_inspect$OG)){
     mutate(label = case_when(grepl("^n\\d+$", label) ~ label,
                              .default = Locus_Tag))
   
+  
   # Split out into HOGs
   HOGs_in_OG <- OGs_to_inspect %>%
     filter(OG == UQ(OG)) %>%
@@ -1771,7 +1773,7 @@ for(OG in unique(OGs_to_inspect$OG)){
       scale_color_discrete(name = "Gene\nAnnotation") +
       labs(title = HOG_annotation) +
       scale_x_continuous(limits = c(0, scale_upper)) +
-      scale_y_continuous(expand = c(0.01, 0.01)) +
+      scale_y_continuous(expand = c(0.05, 0.05)) +
       theme_tree2()
     
     
@@ -1779,7 +1781,7 @@ for(OG in unique(OGs_to_inspect$OG)){
     ## needs to be filtered otherwise takes an age to plot
     long_extra_treedata <- extra_treedata %>%
       filter(Locus_Tag %in% subset_tree$Locus_Tag) %>%
-      select(-c(bacteria, Locus)) %>%
+      select(-Locus) %>%
       pivot_longer(cols      = -c(bacteria_code, Locus_Tag),
                    names_to  = "metric",
                    values_to = "value")
@@ -1796,6 +1798,7 @@ for(OG in unique(OGs_to_inspect$OG)){
                                          fill = value)) +
       geom_tile(show.legend = FALSE) +
       scale_fill_manual(name = "Predicted\nSiderotype",
+                        #limits = c("1", "2", "3", "Unknown"),
                         values = c("#56203D", "#56638A", "#53DD6C", "grey"),
                         drop   = FALSE) +
       theme(axis.text = element_blank(),
@@ -1803,7 +1806,6 @@ for(OG in unique(OGs_to_inspect$OG)){
             axis.ticks = element_blank(),
             panel.background = element_blank())
     
-
     full_tree <- type_heatmap %>%
       insert_left(tree, width = 10)
     
@@ -1836,27 +1838,27 @@ ggsave(filename = "diverging_genes.png",
 
 # Save out loci for NRPS transformer -------------------------------------------
 typed_bacteria <- siderotype_strain_predictions %>%
-  filter(pvd_type != "unknown") %>%
-  pull(bacteria)
+  filter(pvd_type != "Unknown") %>%
+  pull(bacteria_code)
 
 nrps_loci <- full_sid_regions %>%
   ungroup() %>%
-  filter(bacteria %in% typed_bacteria) %>%
+  filter(bacteria_code %in% typed_bacteria) %>%
   select(bacteria_code, Locus_Tag, HOG_annotation)
 
-n_bacteria <- length(unique(nrps_loci$bacteria))
+n_bacteria <- length(unique(nrps_loci$bacteria_code))
 counter    <- 0
 
 for(bacteria_code in unique(nrps_loci$bacteria_code)){
   
   ## Get loci for bacteria
   loci <- nrps_loci %>%
-    filter(bacteria == UQ(bacteria)) %>%
+    filter(bacteria_code == UQ(bacteria_code)) %>%
     pull(Locus_Tag)
   
   ## Save out
   write.table(x         = loci,
-              file      = paste0("./data/NRPS_transformer/loci_ids/", bacteria, "_nrps_loci.txt"),
+              file      = paste0("./data/NRPS_transformer/loci_ids/", bacteria_code, "_nrps_loci.txt"),
               row.names = FALSE,
               col.names = FALSE,
               quote     = FALSE)
