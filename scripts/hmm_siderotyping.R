@@ -170,7 +170,6 @@ pvd_typing <- function(region, core, branch){
 
 # load files ---- 
 all_loci              <- read.csv(annotations_file)
-#all_thresholds        <- read_csv(thresholds_file)
 pangenome_siderotypes <- read.csv(pangenome_siderotypes_file) %>%
   mutate(bacteria_code = as.character(bacteria_code))
 all_true_positives <- read.csv(true_positives_file) %>%
@@ -449,7 +448,6 @@ cip_prediciton <- hmm_pvd_prediction %>%
   left_join(in_vivo_pvd_types,
             by = "bacteria_code")
 
-# TODO check the hmm based predictions on the fragmented v long read genomes 
 cip_prediciton <- in_vitro_pvd_types %>%
   mutate(long_read_id = case_when(CIP.number == "" ~ NA,
                                   .default = paste0("CIP", sub("\\.", "", CIP.number)))) %>%

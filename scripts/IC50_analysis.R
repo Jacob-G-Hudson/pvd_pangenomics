@@ -47,40 +47,6 @@ csv_read <- function(file, skip = 0, ...){
 my_theme <- theme_bw() +
   theme(plot.title = element_text(hjust = 0.5))
 
-fonts <- windowsFonts()
-extrafont::font_import(paths = "./fonts/")
-extrafont::loadfonts(device = "win")
-
-poster_theme <- theme_bw() +
-  theme(plot.title   = element_text(hjust = 0.5,
-                                    color = "#101921",
-                                    size  = 18,
-                                    family = "Overpass"),
-        panel.border = element_blank(),
-         strip.text.y.left = element_text(color = "#101921",
-                                   size  = 18,
-                                   family = "Overpass"),
-        legend.title = element_text(color = "#101921",
-                                    size  = 18,
-                                    family = "Overpass"),
-        legend.text = element_text(color = "#101921",
-                                   size  = 18,
-                                   family = "Overpass"),
-        legend.background = element_blank(),
-        axis.text    = element_text(color  = "#10192190",
-                                    size   = 18,
-                                    family = "Overpass"),
-        axis.title.y = element_text(color = "#101921",
-                                    angle = 0,
-                                    vjust = 0.5,
-                                    size  = 18,
-                                    family = "Overpass"),
-        axis.title.x = element_text(color = "#101921",
-                                    size  = 18,
-                                    family = "Overpass"),
-        axis.line    = element_line(color = "#101921"),
-        axis.ticks   = element_line(color = "#101921"))
-
 
 ## Exclude some repeats
 repeats_to_exclude <- c(3, # Bacterial contamination across plate as seen in image
@@ -126,6 +92,12 @@ pvd_types <- data.frame(supernatant = c("PAO1",
                                         "59.40",
                                         "59.37",
                                         "59.38"),
+                        bacteria_code   = c(107,
+                                        109,
+                                        3330,
+                                        3320,
+                                        3314,
+                                        3319),
                         pvd_type    = c(1,
                                         1,
                                         3,
@@ -136,10 +108,6 @@ pvd_types <- data.frame(supernatant = c("PAO1",
 # Merge and process OD600 data -------------------------------------------------
 ## unify column names
 col_names <- names(raw_OD_data[[1]])
-
-
-unique(all_OD_raw$Repeat)
-unique(well_key$Repeat)
 
 all_OD_raw <- lapply(raw_OD_data,
                      function(x){
@@ -201,8 +169,8 @@ per_inhibition <- OD600_plot_data %>%
   mutate(raw_per_growth       = (OD600/raw_control_OD600) * 100,
          corrected_per_growth = (blank_corrected_OD600/corrected_control_OD600) * 100,
          iron                 = factor(iron, levels = c("No Iron", "Iron")),
-         supernatant          = factor(supernatant),
-         grouping             = paste(supernatant, iron, sep = ","),
+         bacteria_code        = factor(bacteria_code),
+         grouping             = paste(bacteria_code, iron, sep = ","),
          row                  = factor(row, levels = rev(c("A", "B", "C", "D",
                                                        "E", "F", "G", "H")))) %>%
   filter(time_h == 48)
@@ -211,11 +179,26 @@ per_inhibition <- OD600_plot_data %>%
 
 ## Fit models
 supernatant_models <-  drm(formula = corrected_per_growth ~ concentration,
-                           curveid = grouping,
+                           curveid = c(iron, bacteria_code),
                            data    = per_inhibition,
                            fct     = LL.4(names = c("Slope", "Lower Limit", "Upper Limit", "IC50"),
-                                          fixed = c(NA, 0, NA, NA)))
+                                          fixed = c(NA, NA, NA, NA)))
 
+## Try fitting model per figure panel to see if iron has a signficant impact
+test_model <- drm(formula = corrected_per_growth ~ concentration ,
+                  curveid = iron,
+                  data    = per_inhibition %>%
+                    filter(bacteria_code == 109),
+                  fct     = LL.4(names = c("Slope", "Lower Limit", "Upper Limit", "IC50"),
+                                 fixed = c(NA, NA, NA, NA)))
+test_model_null <- drm(formula = corrected_per_growth ~ concentration ,
+                  data    = per_inhibition %>%
+                    filter(bacteria_code == 109),
+                  fct     = LL.4(names = c("Slope", "Lower Limit", "Upper Limit", "IC50"),
+                                 fixed = c(NA, NA, NA, NA)))
+
+modelFit(test_model)
+EDcomp(test_model, c(50))
 ## Extract IC50s
 supernatant_coefficients <- as.data.frame(summary(supernatant_models)[["coefficients"]]) %>%
   rownames_to_column(var = "rowname") %>%
@@ -224,14 +207,12 @@ supernatant_coefficients <- as.data.frame(summary(supernatant_models)[["coeffici
            sep  = ":",
            extra = "merge") %>%
   separate(col   = "group",
-           into  = c("bacteria", "iron"),
+           into  = c("bacteria_code", "iron"),
            sep   = ",") %>%
   mutate(lower_estimate = Estimate - `Std. Error`,
          upper_estimate = Estimate + `Std. Error`,
-         bacteria       = factor(bacteria,
-                                 levels = c("PAO1", "PA14_O",
-                                            "59.38", "59.40",
-                                            "59.37", "60.92")),
+         bacteria       = factor(bacteria_code,
+                                 levels = pvd_types$bacteria_code),
          iron           = factor(iron, levels = c("No Iron", "Iron"))) %>%
   filter(parameter == "IC50")
 
@@ -263,107 +244,39 @@ supernatant_p_values <- as.data.frame(compParm(object   = supernatant_models,
   add_significance("p") %>%
   add_significance("p.adj")
 
-# Plot plate view to check it --------------------------------------------------
-## raw data
-raw_plot <- ggplot(data = all_OD_raw,
-                   mapping = aes(x = col,
-                                y = row,
-                                fill = OD600)) +
-  geom_tile() +
-  scale_fill_gradient(low = "white",
-                      high = "purple") +
-  scale_x_continuous(breaks = 1:6) +
-  facet_grid(cols = vars(iron),
-             rows = vars(Repeat))
+## Work out AUC
+library(pracma) # AUC functions
 
+### test
+x = c(0, 1, 2)
+y = c(2, 1, 0)
 
-## percentage data
-plate_view <- ggplot(data = per_inhibition,
-                     mapping = aes(x = col,
-                                   y = row,
-                                   fill = OD600)) +
-  geom_tile() +
-  scale_fill_gradient(low = "white",
-                      high = "purple") +
-  scale_x_continuous(breaks = 1:6) +
-  facet_grid(cols = vars(iron),
-             rows = vars(Repeat))
-plate_view
+trapz(x, y)
+
+auc_data <- per_inhibition %>%
+  group_by(iron, bacteria_code, Repeat) %>%
+  arrange(concentration,
+          by.groups = TRUE) %>%
+  summarise(per_AUC = trapz(x = concentration,
+                            y = corrected_per_growth),
+            raw_AUC = trapz(x = concentration,
+                            y = blank_corrected_OD600))
 
 # Plot OD600 data --------------------------------------------------------------
-## check each curve is ok alone
-indivudal_curves <- ggplot(data    = per_inhibition %>%
-                                   mutate(supernatant = factor(supernatant,
-                                                               levels = c("PAO1",
-                                                                          "PA14_O",
-                                                                          "59.38",
-                                                                          "59.40",
-                                                                          "59.37",
-                                                                          "60.92"))),
-                                 mapping = aes(x     = concentration,
-                                               y     = corrected_per_growth,
-                                               color = iron)) +
-  geom_point() +
-  stat_smooth(method      = drm,
-              method.args = list(fct    = drc::LL.4(fixed = c(NA, 0, NA, NA)),
-                                 lowerl = c(NULL, NULL, NULL, NULL)),
-              mapping     = aes(color = iron),
-              formula     = y ~ x,
-              se          = FALSE,
-              fullrange   = TRUE,
-              show.legend = FALSE) +
-  stat_summary(geom        = "errorbar",
-               position    = position_dodge(width = 0.5),
-               width       = 1,
-               fun.data    = "mean_cl_boot",
-               fun.args    = list(conf.int = 0.95),
-               show.legend = FALSE) +
-  stat_summary(geom        = "point",
-               size        = 2,
-               position    = position_dodge(width = 0.5),
-               fun         = "mean",
-               show.legend = TRUE) +
-  labs(title = "") +
-  scale_x_continuous(name = "\nSupernatant Concentration (%)",
-                     limits = c(0, 100),
-                     breaks = seq(0, 100, 10),
-                     expand = c(0, 0)) +
-  scale_y_continuous(name   = "Percentage of\nControl OD600",
-                     breaks = seq(0, 150, 25),
-                     expand = c(0, 0)) +
-  coord_cartesian(ylim  = c(0, 150)) +
-  facet_grid(rows = vars(supernatant),
-             cols = vars(Repeat)) +
-  my_theme +
-  theme(legend.background = element_blank(),
-        legend.title = element_blank(),
-        axis.title.y = element_text(angle = 0,
-                                    vjust = 0.5))
-
-indivudal_curves 
-
-ggsave(filename = "individual_suparnatant_v_OD600_curves.png",
-       plot   = indivudal_curves,
-       path   = "./data/graphs",
-       width  = 25,
-       height = 25,
-       units = "cm")
-
-## plot all together
 OD600_supernatant_plot <- ggplot(data    = per_inhibition %>%
-                                   mutate(supernatant = factor(supernatant,
-                                                               levels = c("PAO1",
-                                                                          "PA14_O",
-                                                                          "59.38",
-                                                                          "59.40",
-                                                                          "59.37",
-                                                                          "60.92"))),
+                                   mutate(supernatant = factor(bacteria_code,
+                                                               levels = c("107",
+                                                                          "109",
+                                                                          "3319",
+                                                                          "3320",
+                                                                          "3314",
+                                                                          "3330"))),
                                  mapping = aes(x     = concentration,
                                                y     = corrected_per_growth,
                                                color = iron)) +
   geom_point() +
   stat_smooth(method      = drm,
-              method.args = list(fct    = drc::LL.4(fixed = c(NA, 0, NA, NA)),
+              method.args = list(fct    = drc::LL.4(fixed = c(NA, NA, NA, NA)),
                                  lowerl = c(NULL, NULL, NULL, NULL)),
               mapping     = aes(color = iron),
               formula     = y ~ x,
@@ -381,6 +294,11 @@ OD600_supernatant_plot <- ggplot(data    = per_inhibition %>%
                position    = position_dodge(width = 0.5),
                fun         = "mean",
                show.legend = TRUE) +
+  stat_compare_means(method = "t.test",
+                     show.legend = FALSE,
+                     hide.ns = TRUE,
+                     label.y = 125,
+                     mapping = aes(label = after_stat(p.signif))) +
   labs(title = "") +
   scale_x_continuous(name = "\nSupernatant Concentration (%)",
                      limits = c(0, 100),
@@ -389,76 +307,55 @@ OD600_supernatant_plot <- ggplot(data    = per_inhibition %>%
   scale_y_continuous(name   = "Percentage of\nControl OD600",
                      breaks = seq(0, 150, 25),
                      expand = c(0, 0)) +
-  coord_cartesian(ylim  = c(0, 150)) +
-  facet_wrap(vars(supernatant),
+  scale_color_discrete(name = "Iron (μM)",
+                       labels = c("0",
+                                  "100")) +
+  coord_cartesian(ylim  = c(0, 150),
+                  xlim  = c(0, 55)) +
+  facet_wrap(vars(bacteria_code),
              ncol = 2,
              nrow = 3) +
   my_theme +
   theme(legend.position = c(0.85, 0.85),
         legend.background = element_blank(),
-        legend.title = element_blank(),
         axis.title.y = element_text(angle = 0,
                                     vjust = 0.5))
 
 OD600_supernatant_plot 
 
-ggsave(filename = "suparnatant_v_OD600_curves.png",
+ggsave(filename = "figure_5_suparnatant_v_OD600_curves.png",
        plot   = OD600_supernatant_plot,
-       path   = "./data/graphs",
-       width  = 25,
-       height = 25,
+       path   = "./data/figures",
+       width  = 20,
+       height = 20,
        units = "cm")
 
-## plot for SoCoBio poster 
-OD600_heatmap_plot <- ggplot(data    = per_inhibition %>%
-                             group_by(concentration, supernatant, iron, Repeat) %>%
-                             summarise(mean_corrected_per_growth = round(mean(corrected_per_growth), 0)) %>%
-                             mutate(iron        = factor(ifelse(iron == "Iron", "+", "-"), levels = c("+", "-")),
-                                    supernatant = factor(sub("_O", "", supernatant), levels = c("PAO1", "PA14",
-                                                                                 "59.38", "59.40",
-                                                                                 "59.37", "60.92"))) %>%
-                               filter(Repeat == 1),
-                           mapping = aes(x     = concentration,
-                                         y     = iron,
-                                         fill  = mean_corrected_per_growth,
-                                         label = mean_corrected_per_growth)) +
-  geom_tile() + 
-  #geom_text(color = "white") +
-  scale_fill_gradient2(high      = "white",
-                       mid       = "purple",
-                       low       = "black",
-                       midpoint  = 100,
-                       name      = "Growth (%)",
-                       transform = "reverse") +
-  scale_y_discrete(name = NULL,
-                   expand = c(0,0)) +
-  scale_x_continuous(name   = "\nSupernatant Concentration",
-                  expand = c(0,0)) +
-  labs(title = "\n") +
-  facet_grid(rows = vars(supernatant),
-             #cols = vars(Repeat),
-             switch   = "y") +
-  poster_theme +
-  theme(legend.position = c(0.6, 1),
-        legend.justification = c(0, 0),
-        legend.direction = "horizontal",
-        legend.key.width = unit(25, "pt"),
-        legend.key.height = unit(10, "pt"),
-        legend.spacing.x = unit(2, "pt"),
-        legend.text = element_text(margin = margin(0, 0, 0, 0, "pt"), size = 10),
-        panel.spacing.y = unit(0, "cm"))
 
-OD600_heatmap_plot
+# Plot AUC data ----
+auc_plot <- ggplot(data = auc_data,
+                   mapping = aes(x = bacteria_code,
+                                 y = raw_AUC,
+                                 color = iron)) +
+  geom_point(position = position_dodge(width = 1)) +
+  stat_summary(geom        = "errorbar",
+               position    = position_dodge(width = 1),
+               width       = 1,
+               fun.data    = "mean_cl_boot",
+               fun.args    = list(conf.int = 0.95),
+               show.legend = FALSE) +
+  stat_summary(geom        = "point",
+               size        = 2,
+               position    = position_dodge(width = 1),
+               fun         = "mean",
+               show.legend = TRUE) +
+  stat_compare_means(show.legend = FALSE,
+                     method      = "t.test",
+                     paired      = TRUE,
+                     mapping = aes(label = round(after_stat(p.adj), 2))) +
+  coord_cartesian(ylim = c(0, 5100)) +
+  my_theme
 
-
-
-ggsave(filename = "poster_suparnatant_v_OD600_heatmap.png",
-       plot   = OD600_heatmap_plot,
-       path   = "./data/graphs",
-       width  = 25.53,
-       height = 16.1,
-       units = "cm")
-
+auc_plot
 # Plot IC50 values ----
 supernatant_IC50_plot <- ggplot(data = supernatant_coefficients,
                                 mapping = aes(x = bacteria,
@@ -561,7 +458,7 @@ pred_heatmap_plot <- ggplot(data    = prediction_plot_data,
                                            fill  = prediction,
                                            label = round(prediction))) +
   geom_tile() + 
-  geom_text(color = "white") +
+#  geom_text(color = "white") +
   scale_fill_gradient2(high      = "black",
                        mid       = "purple",
                        low       = "white",

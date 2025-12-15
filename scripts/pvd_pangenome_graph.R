@@ -19,14 +19,11 @@ bacteria_names_file    <- "./data/bakta/bacteria.txt"
 #iats_siderotypes_file  <- "./raw_data/iats_siderotypes.csv"
 
 ## Outputs
-figure_dir       <- "./data/figures/"
-annotations_file <- "./data/reannotated_genomes"
+figure_dir            <- "./data/figures/"
+annotations_file      <- "./data/reannotated_genomes"
+siderotype_prediction <- "./data/siderotype_strain_predictions.csv"
 
 # Load data --------------------------------------------------------------------
-# Note 464 PGDB + 13 IATS = 477
-# TODO 11 bacteria have a name of NA, but a bacteria code. Find out why
-#      10394 is in gffs but not bacterial metadata
-
 # Load metadata from previously known genes
 query_metadata <- read.csv(file = query_metadata_file)
 
@@ -610,10 +607,9 @@ potential_siderophore_HOGs_from_unclear <- all_loci %>%
 
 potential_siderophore_HOGs <- unique(c(potential_siderophore_HOGs, potential_siderophore_HOGs_from_unclear))
 
-unique(unclear_reassignemtns$new_annotation)
 ## Save out annotations for later use
 write.csv(x         = all_loci,
-          file      = annotations_file,
+          file      = paste0(annotations_file, ".csv"),
           row.names = FALSE)
 
 # Plot phylogenetic trees of reassignemnts -------------------------------------
@@ -1504,6 +1500,10 @@ known_accuracy <- known_predictions %>%
   group_by(correct) %>%
   summarise(n = n())
 
+# Save out type prediction for further use
+write.csv(x    = siderotype_strain_predictions,
+          file = siderotype_prediction,
+          row.names = FALSE)
 
 # Map type to all genes ---------------------------------------------------------
 # TODO I made a change to how bacteria_code is included in all_loci, as previously some were missing
@@ -1685,6 +1685,29 @@ for(OG in unique(OGs_to_inspect$OG)){
 
 # 
 
+
+# Map type to region size ---------------------------------------------------------
+size_by_type <- high_confidence_region_sizes %>%
+  left_join(siderotype_strain_predictions %>%
+              select(bacteria_code, pvd_type),
+            by = c("bacteria_code" = "bacteria_code")) %>%
+  mutate(pvd_type = factor(sub("pvd", "", pvd_type), levels = c("1", "2", "3", "Unknown")))
+
+size_by_type_plot <- ggplot(data = size_by_type,
+                            mapping = aes(x = region_size_kb,
+                                          fill = pvd_type)) +
+  geom_histogram(binwidth = 1,
+                 alpha    = 0.5,
+                 position = "identity") +
+  scale_x_continuous(name = "Region size (Kb)",
+                     expand = c(0, 0)) +
+  scale_y_continuous(name = "Count (n)",
+                     expand = c(0, 0)) +
+  coord_cartesian(ylim = c(0, 60),
+                  xlim = c(0, 200)) +
+  theme_bw() 
+
+size_by_type_plot
 
 # Make nice figure of type mapped to genes of interest -------------------------
 diverging_genes <- c("pvdM_1", "fpvG_1", "pvdF_1", "pvdP_1", "pvdO_1",
@@ -1873,4 +1896,121 @@ for(bacteria_code in unique(nrps_loci$bacteria_code)){
 
 
 # Save out loci for HMM-building -----------------------------------------------
+# Make data for hmms with 4-fold cross validation ----
+all_key_genes <- c(pvd1_branch,
+                   pvd2_branch,
+                   pvd3_branch)
+
+typed_bacteria <- siderotype_strain_predictions %>%
+  filter(pvd_type != "Unknown") %>%
+  filter(prediction_quality == "high") %>%
+  pull(bacteria_code)
+
+hmm_loci <- full_sid_regions %>%
+  ungroup() %>%
+  # filter to genes of interest
+  filter(HOG_annotation %in% all_key_genes) %>%
+  # filter to only genes of correct length
+  left_join(expected_lengths,
+            by = "HOG_annotation") %>%
+  filter((Stop - Start) > median_size * 0.8 &
+         (Stop - Start) < median_size * 1.2) %>%
+  # filter to bacteria we have typed
+  filter(bacteria_code %in% typed_bacteria) %>%
+  select(HOG_annotation, Locus_Tag)
+
+# Check how many loci we have for each gene
+loci_counts <- hmm_loci %>%
+  group_by(HOG_annotation) %>%
+  summarise(n = n())
+
+## save out as all true positives
+write.csv(x         = hmm_loci,
+          file      = "./data/hmm_building/true_positives.txt",
+          row.names = FALSE,
+          quote     = FALSE)
+
+## Split into all possible block combinations
+train_split <- function(gene, all_loci, hmm_loci, n_splits, output_dir){
+  
+  ## make output dir 
+  dir.create(path         = paste0(output_dir, gene),
+             showWarnings = TRUE)
+  writeLines(paste0("Created", output_dir, gene))
+  
+  ## get loci relating to the gene and split into groups
+  gene_loci <- hmm_loci %>%
+    filter(HOG_annotation == UQ(gene))
+  
+  ## save out for the final hmm
+  all_hmm_loci <- gene_loci %>%
+    pull(Locus_Tag)
+  
+  ## Save out
+  writeLines(paste0("Saving out ", output_dir, gene, "/all_loci.txt", "..."))
+  write.table(x         = all_hmm_loci,
+              file      = paste0(output_dir, gene, "/all_loci.txt"),
+              row.names = FALSE,
+              col.names = FALSE,
+              quote     = FALSE)
+  
+  
+  ## split into groups for validation
+  gene_splits <- gene_loci %>% 
+    group_by((row_number()-1) %/% (n()/n_splits)) %>%
+    nest %>% pull(data)
+  
+  ## make every permutation of groups
+  all_combinations <- t(combn(x = 1:n_splits,
+                              m = n_splits - 1))
+  
+  ## save out loci
+  if(TRUE){
+    for(i in 1:n_splits){
+      
+      train_loci <- gene_splits[-i] %>%
+        do.call(rbind, .) %>%
+        pull(Locus_Tag)
+      
+      test_loci <- all_loci %>%
+        filter(!(Locus_Tag %in% train_loci)) %>%
+        pull(Locus_Tag)
+      
+      ## Save out
+      writeLines(paste0("Saving out ", output_dir, gene, "/train_loci_", i, ".txt", "..."))
+      write.table(x         = train_loci,
+                  file      = paste0(output_dir, gene, "/train_loci_", i, ".txt"),
+                  row.names = FALSE,
+                  col.names = FALSE,
+                  quote     = FALSE)
+      
+      writeLines(paste0("Saving out ", output_dir, gene, "/test_loci_", i, ".txt", "..."))
+      write.table(x         = test_loci,
+                  file      = paste0(output_dir, gene, "/test_loci_", i, ".txt"),
+                  row.names = FALSE,
+                  col.names = FALSE,
+                  quote     = FALSE)
+      
+      ## save the test loci for error checking
+      assign(x     = paste0("train_loci_", i),
+             value = train_loci)
+      
+      ## save out train loci for error checking
+      assign(x     = paste0("test_loci_", i),
+             value = test_loci)
+    }
+  }
+  
+}
+
+for(HOG_annotation in all_key_genes){
+  
+  train_split(gene     = HOG_annotation,
+              all_loci = all_loci %>% select(Locus_Tag, HOG_annotation),
+              hmm_loci = hmm_loci,
+              n_splits = 4,
+              output_dir = "./data/hmm_building/")
+  
+}
+
 
