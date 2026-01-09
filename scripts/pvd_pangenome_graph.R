@@ -13,6 +13,7 @@ HOG_file               <- "./data/orthofinder/N0.tsv"
 #bacteria_metadata_file <- "./raw_data/pgdb_strain_summary.tsv"
 query_metadata_file    <- "./raw_data/20240711_smith_et_al_Genes.csv"
 bakta_annotations      <- "./data/bakta/compiled_tsvs.csv"
+bakta_summaries_file   <- "./data/bakta/compiled_bakta_summarys.csv"
 iats_siderotypes_file  <- "./raw_data/iats_siderotypes.csv"
 bacteria_names_file    <- "./data/bakta/bacteria.txt"
 
@@ -26,6 +27,9 @@ siderotype_prediction <- "./data/siderotype_strain_predictions.csv"
 # Load data --------------------------------------------------------------------
 # Load metadata from previously known genes
 query_metadata <- read.csv(file = query_metadata_file)
+
+# Annotation summaries from bakta
+bakta_summaries <- read.csv(file = bakta_summaries_file)
 
 # Load gff files
 ## Has 477 correctly
@@ -55,13 +59,6 @@ gffs <- read.csv(bakta_annotations) %>%
                                    bakta_gene)) 
 
 # Load bacteria metadata
-# baacteria_metadata is missing data on 11 strains, so switched to using bacteria_names_file
-# instead, which I named myself
-#bacteria_metadata <- read.delim(bacteria_metadata_file) %>%
-#  select(!(Number.of.genes:GTF.format.annotations...file.name)) %>%
-#  select(!c(Species, Database.version)) %>%
-#  rename(bacteria = Full.organism.name)
-
 bacteria_codes <- read.delim(file   = bacteria_names_file,
                              header = FALSE,
                              col.names = "bacteria") %>%
@@ -82,19 +79,14 @@ HOGs <- read.delim(file = HOG_file,
   select(-Loci)
 
 # Merge assignments into one table
-# NB I have deviated here by using bacteria_metadata instead of codes
-# This changes the "bacteria" field to be their full names
-# This could be better or it could break something
-## 467 here?
-all_loci <- gffs %>% # 477 here
+all_loci <- gffs %>% 
   left_join(HOGs,
-            by = c("Locus_Tag" = "Locus_Tag")) %>% # 477 here
+            by = c("Locus_Tag" = "Locus_Tag")) %>% 
   left_join(bacteria_codes,
-            by = c("bacteria_code" = "bacteria_code")) # 477 here
+            by = c("bacteria_code" = "bacteria_code")) 
 
 # genes in an OG of 1 member are lost from N0.tsv, as you can't make a HOG from one gene
-# I need to add them as HOGs, with a number 
-# TODO some OGs are also NA, not sure I need them but if so add here
+# Add them as HOGs, with a number 
 max_HOG <- max(sub("N0.HOG", "", all_loci$HOG),
                na.rm = TRUE)
 
@@ -196,6 +188,12 @@ n_HOGs <- all_loci %>%
   pull(HOG) %>%
   unique() %>%
   length()
+
+bakta_annotation_stats <- bakta_summaries %>%
+  group_by(Feature) %>%
+  summarise(min  = min(Count),
+            mean = mean(Count),
+            max  = max(Count))
 
 HOG_classes <- all_loci %>%
   select(HOG_annotation) %>%
