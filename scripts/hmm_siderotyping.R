@@ -303,6 +303,12 @@ hmm_thresholds <- map_df(roc_fits,
 #  filter(bitscore > threshold) %>%
 #  left_join()
 
+# Save out thresholds for supplementary table 1
+write.csv(x = hmm_thresholds,
+          file = paste0(figure_dir, "supplementary/s_table_1_hmm_thresholds.csv"),
+          row.names = FALSE)
+
+
 # Siderotype strains with hmms -------------------------------------------------
 # Get final gene annotations 
 ## Filter to one annotation per locus
