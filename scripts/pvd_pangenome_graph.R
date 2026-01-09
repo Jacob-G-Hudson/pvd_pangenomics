@@ -205,15 +205,267 @@ HOG_classes <- all_loci %>%
   summarise(n = n()) %>%
   mutate(percentage = n/n_HOGs * 100)
 
-# Manually resolve annotations for some HOGs -----------------------------------
+HOGs_with_PVD_genes <- all_loci %>%
+  filter(bakta_annotation %in% query_metadata$locus_name_in_source) %>%
+  pull(HOG_annotation) %>%
+  unique()
+
+n_PVD_HOGS            <- length(HOGs_with_PVD_genes)
+n_unclear_PVD_HOGS    <- sum(grepl("Unclear", HOGs_with_PVD_genes))
+
+duplicate_HOG_annotations <- data.frame(HOG = HOGs_with_PVD_genes) %>%
+  mutate(annotation = sub("_\\d+$", "", HOG)) %>%
+  group_by(annotation) %>%
+  summarise(n = n())
+
+PVD_HOG_contents <- all_loci %>%
+  filter(HOG_annotation %in% HOGs_with_PVD_genes) %>%
+  # filter(grepl("Unclear", HOG_annotation)) %>%
+  group_by(OG, HOG) %>%
+  reframe(OG = paste(unique(OG), collapse = ", "),
+          HOG = paste(unique(HOG), collapse = ", "),
+          HOG_annotation = unique(HOG_annotation),
+          Gene.Tree.Parent.Clade = paste(unique(Gene.Tree.Parent.Clade), collapse = ", "),
+          PVD_genes              = paste(unique(bakta_annotation), collapse = ", "))
+
 # Find unclear orthogroups which contain our genes of interest
 OGs_to_examine <- all_loci %>%
-  filter(bakta_annotation %in% query_metadata$locus_name_in_source) %>%
+  filter(HOG_annotation %in% HOGs_with_PVD_genes) %>%
   filter(grepl("Unclear", HOG_annotation)) %>%
-  select(OG, HOG, HOG_annotation, Gene.Tree.Parent.Clade) %>%
-  distinct()
+  group_by(OG) %>%
+  summarise(OG = unique(OG),
+            HOG = unique(HOG),
+            HOG_annotation = unique(HOG_annotation),
+            Gene.Tree.Parent.Clade = unique(Gene.Tree.Parent.Clade),
+            PVD_genes              = paste(unique(bakta_annotation), collapse = ", "))
 
-# Make colour scheme for the genes
+
+
+# Alluvial plot demonstragig how genes map to HOGs -----------------------------
+## TODO see if I can change the alluvial so that known genes are on the left, and unknowns on the right
+## hopefully this will give me a bit more space on the plot! 
+library(ggalluvial)   # Allivual/Sankey plot functions 
+if(FALSE){
+# Make alluvial data
+alluvial_data <- all_loci %>%
+  filter(HOG_annotation %in% HOGs_with_PVD_genes) %>%
+  filter(bakta_annotation != "hypothetical protein") %>%
+  group_by(bakta_gene, HOG_annotation) %>%
+  summarise(freq = n()) %>%
+  ungroup() %>%
+  mutate(short_HOG = sub("_\\d+", "", HOG_annotation))
+
+# Get the order for the HOG names
+short_HOG_order <- alluvial_data %>%
+  filter(short_HOG != "Unclear") %>%
+  arrange(short_HOG) %>%
+  pull(short_HOG) %>%
+  unique() %>%
+  c(., "Unclear")
+
+HOG_order <- alluvial_data %>%
+  mutate(short_HOG = factor(short_HOG,
+                            levels = short_HOG_order)) %>%
+  arrange(short_HOG) %>%
+  pull(HOG_annotation) %>%
+  unique()
+
+# get the order I want the gene names in 
+unclear_gene_order <- alluvial_data %>%
+  filter(grepl("Unclear", HOG_annotation)) %>%
+  arrange(bakta_gene) %>%
+  pull(bakta_gene) %>%
+  unique()
+
+clear_gene_order <- alluvial_data %>%
+  filter(!(bakta_gene %in% unclear_gene_order)) %>%
+  mutate(HOG_annotation = factor(HOG_annotation,
+                                 levels = HOG_order)) %>%
+  arrange(HOG_annotation) %>%
+  pull(bakta_gene) %>%
+  unique()
+
+gene_order <- c(clear_gene_order, unclear_gene_order)
+
+# put orders into alluival data
+alluvial_data <- alluvial_data %>%
+  mutate(bakta_gene = factor(bakta_gene,
+                             levels = gene_order),
+         HOG_annotation = factor(HOG_annotation,
+                                 levels = HOG_order)) 
+
+# plot
+alluvial_plot <- ggplot(data    = alluvial_data,
+                        mapping = aes(axis1 = bakta_gene,
+                                      axis2 = HOG_annotation,
+                                      y     = log10(freq))) +
+  geom_alluvium(mapping = aes(fill = bakta_gene)) +
+  geom_stratum(mapping = aes(fill = bakta_gene)) +
+  geom_text(stat = "stratum",
+            aes(label = after_stat(stratum)),
+            color = "white") +
+  scale_x_discrete(limits = c("HOG_annotation", "bakta_annotation"),
+                   expand = c(0.15, 0.05)) +
+  theme_void() +
+  theme(legend.position = "none")
+
+alluvial_plot
+}
+
+# alluvial without hypotheticals
+# Make alluvial data
+alluvial_data <- all_loci %>%
+  filter(HOG_annotation %in% HOGs_with_PVD_genes) %>%
+  filter(bakta_gene != "hypothetical protein") %>%
+  group_by(bakta_gene, HOG_annotation) %>%
+  summarise(freq = n()) %>%
+  ungroup() %>%
+  mutate(short_HOG = sub("_\\d+", "", HOG_annotation))
+
+# Get the order for the HOG names
+short_HOG_order <- alluvial_data %>%
+  filter(short_HOG != "Unclear") %>%
+  arrange(short_HOG) %>%
+  pull(short_HOG) %>%
+  unique() %>%
+  c(., "Unclear")
+
+HOG_order <- alluvial_data %>%
+  mutate(short_HOG = factor(short_HOG,
+                            levels = short_HOG_order)) %>%
+  arrange(short_HOG) %>%
+  pull(HOG_annotation) %>%
+  unique()
+
+# get the order I want the gene names in 
+unclear_gene_order <- alluvial_data %>%
+  mutate(HOG_annotation = factor(HOG_annotation,
+                                 levels = HOG_order)) %>%
+  filter(grepl("Unclear", HOG_annotation)) %>%
+  arrange(HOG_annotation) %>%
+  pull(bakta_gene) %>%
+  unique()
+
+clear_gene_order <- alluvial_data %>%
+  mutate(HOG_annotation = factor(HOG_annotation,
+                                 levels = HOG_order)) %>%
+  filter(!bakta_gene %in% unclear_gene_order) %>%
+  arrange(HOG_annotation) %>%
+  pull(bakta_gene) %>%
+  unique()
+
+gene_order <- c(clear_gene_order, unclear_gene_order)
+  
+
+
+
+# need to make a colour scheme but its a bit triky wth so many groups, perhaps:
+# ~ make all HOGs with one annotation one colour,
+# ~ use a pallet for the rest
+unclear_genes <- all_loci %>%
+  filter(HOG %in% OGs_to_examine$HOG) %>%
+  select(HOG, bakta_annotation) %>%
+  pull(bakta_annotation) %>%
+  unique()
+
+gene_pal <- c("#470024", # solG
+              "#040F0F", # Hypothetical
+              "#0FA3B1", # viuB
+              "#EDDEA4", # sip
+              "#FF9B42", # dltA
+              "#BBBE64", # yojI
+              "#7D8491", # pvdI
+              "#FF6978", # pvdJ
+              "#340068", # pvdD
+              "#2BA84A", # pvdE
+              "#357DED") # entF
+
+gene_colors <- data.frame(gene  = c(unclear_genes),
+                          color = gene_pal) 
+
+
+# plot
+# put orders into alluival data
+alluvial_data <- alluvial_data %>%
+  left_join(gene_colors,
+            by = c("bakta_gene" = "gene")) %>%
+  replace_na(list(color = "#FFDD4A")) %>%
+  mutate(bakta_gene = factor(bakta_gene,
+                             levels = gene_order),
+         HOG_annotation = factor(HOG_annotation,
+                                 levels = HOG_order)) 
+
+
+alluvial_plot <- ggplot(data    = alluvial_data,
+                        mapping = aes(axis1 = bakta_gene,
+                                      axis2 = HOG_annotation,
+                                      y     = log10(freq))) +
+  geom_alluvium(mapping = aes(fill = color)) +
+  geom_stratum(mapping  = aes(fill = color)) +
+  scale_fill_identity() +
+  geom_text(stat = "stratum",
+            aes(label = sub("_\\d+$", "", after_stat(stratum))),
+            color = "black",
+            size  = 9/.pt) +
+  scale_x_discrete(limits = c("HOG_annotation", "bakta_annotation"),
+                   expand = c(0.35, 0.35)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  theme_void() +
+  theme(legend.position = "none")
+
+alluvial_plot
+
+ggsave(filename = "test_alluvial.png",
+       path     = figure_dir,
+       width    = 8,
+       height   = 20,
+       device   = "png",
+       units    = "cm")
+
+# Lets try a heatmap 
+# library(ComplexHeatmap)
+absolute_heatmap <- ggplot(data    = alluvial_data,
+                           mapping = aes(x = bakta_gene,
+                                         y = HOG_annotation,
+                                         fill = freq)) +
+  geom_tile()
+  
+absolute_heatmap
+
+# bubble plot
+HOG_labels <- alluvial_data %>%
+  ungroup() %>%
+  mutate(short_HOG = sub("_\\d+", "", HOG_annotation),
+         HOG_annotation = factor(HOG_annotation,
+                                 levels = HOG_order)) %>%
+  arrange(HOG_annotation) %>%
+  select(HOG_annotation, short_HOG) %>%
+  distinct() %>%
+  pull(short_HOG)
+
+absolute_bubble_plot <- ggplot(data    = ,
+                               mapping = aes(x = bakta_gene,
+                                             y = HOG_annotation,
+                                             size = freq,
+                                             color = freq)) +
+  geom_point(alpha = 0.8) + 
+  scale_size_area(limits = c(1, 500)) +
+  scale_color_viridis_c(limits = c(0, 500)) +
+  scale_y_discrete(labels = HOG_labels) +
+  labs(x     = "Gene annotation",
+       y     = "HOG annotation",
+       size  = "Number of Genes",
+       color = "Number of Genes") +
+  coord_equal(ratio = 1) +
+  theme_bw() +
+  theme(axis.text.x      = element_text(angle = 90,
+                                        vjust = 0.5,
+                                        hjust = 1),
+        panel.grid.major = element_line(color = "grey90") )
+  
+absolute_bubble_plot
+# Manually resolve annotations for some HOGs -----------------------------------
+# Make colour scheme for the genes of interest
 unclear_genes <- all_loci %>%
   filter(HOG %in% OGs_to_examine$HOG) %>%
   select(HOG, bakta_annotation) %>%
