@@ -38,6 +38,7 @@ gffs <- read.csv(bakta_annotations) %>%
   filter(Type == "cds") %>%
   rename(bakta_gene    = Gene,
          bakta_product = Product) %>%
+  # TODO update these regex to just replace anything with "hypothetical" in it?
   mutate(Pseudogene    = grepl("\\(pseudo\\) ", bakta_product),
          bakta_gene    = gsub("Unknown", "hypothetical protein", bakta_gene),
          bakta_product = gsub("\\(pseudo\\) ", "", bakta_product),
@@ -368,7 +369,7 @@ unclear_genes <- all_loci %>%
   pull(bakta_annotation) %>%
   unique()
 
-gene_pal <- c("#470024", # solG
+gene_pal <- c("#a5150d", # solG
               "#040F0F", # Hypothetical
               "#0FA3B1", # viuB
               "#EDDEA4", # sip
@@ -376,7 +377,7 @@ gene_pal <- c("#470024", # solG
               "#BBBE64", # yojI
               "#7D8491", # pvdI
               "#FF6978", # pvdJ
-              "#340068", # pvdD
+              "#d896ff", # pvdD
               "#2BA84A", # pvdE
               "#357DED") # entF
 
@@ -386,23 +387,23 @@ gene_colors <- data.frame(gene  = c(unclear_genes),
 
 # plot
 # put orders into alluival data
-alluvial_data <- alluvial_data %>%
+final_alluvial_data <- alluvial_data %>%
   left_join(gene_colors,
             by = c("bakta_gene" = "gene")) %>%
-  replace_na(list(color = "#FFDD4A")) %>%
+  replace_na(list(color = "#22b600")) %>%
   mutate(bakta_gene = factor(bakta_gene,
                              levels = gene_order),
          HOG_annotation = factor(HOG_annotation,
                                  levels = HOG_order)) 
 
 
-alluvial_plot <- ggplot(data    = alluvial_data,
+alluvial_plot <- ggplot(data    = final_alluvial_data,
                         mapping = aes(axis1 = bakta_gene,
                                       axis2 = HOG_annotation,
                                       y     = log10(freq))) +
   geom_alluvium(mapping = aes(fill = color)) +
   geom_stratum(mapping  = aes(fill = color)) +
-  scale_fill_identity() +
+  scale_fill_identity(na.value = "grey50") +
   geom_text(stat = "stratum",
             aes(label = sub("_\\d+$", "", after_stat(stratum))),
             color = "black",
@@ -415,11 +416,11 @@ alluvial_plot <- ggplot(data    = alluvial_data,
 
 alluvial_plot
 
-ggsave(filename = "test_alluvial.png",
+ggsave(filename = "alluvial.svg",
        path     = figure_dir,
        width    = 8,
        height   = 20,
-       device   = "png",
+       device   = "svg",
        units    = "cm")
 
 # Lets try a heatmap 
