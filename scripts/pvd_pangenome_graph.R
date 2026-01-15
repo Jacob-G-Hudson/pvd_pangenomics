@@ -5,6 +5,8 @@ library(aplot)          # helpers for phylogenetic plotting
 library(scales)         # Easy log10 axis
 library(tidygraph)      # Network plot
 library(ggraph)         # Network plotting, tidygraph companion
+library(ggalluvial)     # Allivual/Sankey plot functions 
+
 
 
 # Options ----------------------------------------------------------------------
@@ -245,7 +247,6 @@ OGs_to_examine <- all_loci %>%
 # Alluvial plot demonstragig how genes map to HOGs -----------------------------
 ## TODO see if I can change the alluvial so that known genes are on the left, and unknowns on the right
 ## hopefully this will give me a bit more space on the plot! 
-library(ggalluvial)   # Allivual/Sankey plot functions 
 if(FALSE){
 # Make alluvial data
 alluvial_data <- all_loci %>%
@@ -379,16 +380,18 @@ gene_pal <- c("#a5150d", # solG
               "#FF6978", # pvdJ
               "#d896ff", # pvdD
               "#2BA84A", # pvdE
-              "#357DED") # entF
+              "#357DED", # entF
+              "#483D03") # pvdY
 
-gene_colors <- data.frame(gene  = c(unclear_genes),
+gene_colors <- data.frame(gene  = c(unclear_genes, "pvdY"),
                           color = gene_pal) 
 
 
 # plot
 # put orders into alluival data
 final_alluvial_data <- alluvial_data %>%
-  left_join(gene_colors,
+  left_join(gene_colors %>%
+              filter(gene != "pvdY"),
             by = c("bakta_gene" = "gene")) %>%
   replace_na(list(color = "#22b600")) %>%
   mutate(bakta_gene = factor(bakta_gene,
@@ -423,77 +426,11 @@ ggsave(filename = "alluvial.svg",
        device   = "svg",
        units    = "cm")
 
-# Lets try a heatmap 
-# library(ComplexHeatmap)
-absolute_heatmap <- ggplot(data    = alluvial_data,
-                           mapping = aes(x = bakta_gene,
-                                         y = HOG_annotation,
-                                         fill = freq)) +
-  geom_tile()
-  
-absolute_heatmap
-
-# bubble plot
-HOG_labels <- alluvial_data %>%
-  ungroup() %>%
-  mutate(short_HOG = sub("_\\d+", "", HOG_annotation),
-         HOG_annotation = factor(HOG_annotation,
-                                 levels = HOG_order)) %>%
-  arrange(HOG_annotation) %>%
-  select(HOG_annotation, short_HOG) %>%
-  distinct() %>%
-  pull(short_HOG)
-
-absolute_bubble_plot <- ggplot(data    = ,
-                               mapping = aes(x = bakta_gene,
-                                             y = HOG_annotation,
-                                             size = freq,
-                                             color = freq)) +
-  geom_point(alpha = 0.8) + 
-  scale_size_area(limits = c(1, 500)) +
-  scale_color_viridis_c(limits = c(0, 500)) +
-  scale_y_discrete(labels = HOG_labels) +
-  labs(x     = "Gene annotation",
-       y     = "HOG annotation",
-       size  = "Number of Genes",
-       color = "Number of Genes") +
-  coord_equal(ratio = 1) +
-  theme_bw() +
-  theme(axis.text.x      = element_text(angle = 90,
-                                        vjust = 0.5,
-                                        hjust = 1),
-        panel.grid.major = element_line(color = "grey90") )
-  
-absolute_bubble_plot
-# Manually resolve annotations for some HOGs -----------------------------------
-# Make colour scheme for the genes of interest
-unclear_genes <- all_loci %>%
-  filter(HOG %in% OGs_to_examine$HOG) %>%
-  select(HOG, bakta_annotation) %>%
-  pull(bakta_annotation) %>%
-  unique()
-
-gene_pal <- c("#470024", # solG
-              "#040F0F", # Hypothetical
-              "#0FA3B1", # viuB
-              "#EDDEA4", # sip
-              "#FF9B42", # dltA
-              "#BBBE64", # yojI
-              "#7D8491", # pvdI
-              "#FF6978", # pvdJ
-              "#340068", # pvdD
-              "#2BA84A", # pvdE
-              "#357DED", # entF
-              "#483D03") # pvdY 
-
-gene_colors <- data.frame(gene  = c(unclear_genes, "pvdY"),
-                          color = gene_pal)
-
-## Unclear 59 ------------------------------------------------------------------
-### Load raw tree
+# Manually resolve annotations for Unclear_59 ----------------------------------
+# Load raw tree
 raw_tree_59 <- read.newick(file = "./data/orthofinder/Resolved_Gene_Trees/raw_treefiles/OG0000005_tree.txt")
 
-### Add in metadata
+# Add in metadata
 treedata_59 <- as_tibble(raw_tree_59) %>%
   mutate(Locus_Tag = gsub(".*_(?=[^_]*_[^_]*$)", "", label, perl = TRUE)) %>%
   left_join(all_loci %>%
@@ -502,13 +439,13 @@ treedata_59 <- as_tibble(raw_tree_59) %>%
   left_join(gene_colors,
             by = c("bakta_gene" = "gene"))
 
-### Filter to "N0.HOG0000059"
+# Filter to "N0.HOG0000059"
 HOG_56_node    <- 1549 # determined from viewing entire tree
 tree_59        <- tree_subset(tree = as.treedata(treedata_59),
                               node = 1549,
                               levels_back = 0)
 
-### View tree to work out what nodes I should subset from
+# View tree to work out what nodes I should subset from
 exploratory_59 <- ggtree(tr     =  tree_59,
                          layout = "rect",
                          x      = length) +
@@ -601,7 +538,7 @@ Unclear_59_reassignments <- do.call(rbind, list(dltA_bottom_loci, dltA_middle_lo
                                                 pvdD_loci, pvdI_loci, pvdJ_loci,
                                                 hp_loci))
 
-## Unclear_235 -----------------------------------------------------------------
+# Manually resolve annotations for Unclear_235 ---------------------------------
 ### Load raw tree
 raw_tree_235 <- read.newick(file = "./data/orthofinder/Resolved_Gene_Trees/raw_treefiles/OG0000111_tree.txt")
 
@@ -654,11 +591,11 @@ viuB_genes <- as_tibble(tree_235) %>%
 Unclear_235_reassignments <- do.call(rbind, list(sip_genes,
                                                  viuB_genes))
 
-## Unclear_1075 ----------------------------------------------------------------
-### Get raw tree
+# Manually resolve annotations for Unclear_1075 --------------------------------
+# Get raw tree
 raw_tree_1075 <- read.newick(file = "./data/orthofinder/Resolved_Gene_Trees/raw_treefiles/OG0000933_tree.txt")
 
-### Add in metadata
+# Add in metadata
 treedata_1075 <- as_tibble(raw_tree_1075) %>%
   mutate(Locus_Tag = gsub(".*_(?=[^_]*_[^_]*$)", "", label, perl = TRUE)) %>%
   left_join(all_loci %>%
@@ -667,7 +604,7 @@ treedata_1075 <- as_tibble(raw_tree_1075) %>%
   left_join(gene_colors,
             by = c("bakta_gene" = "gene"))
 
-### Plot to find which node to split at
+# Plot to find which node to split at
 exploratory_1075 <- ggtree(tr      =  as.treedata(treedata_1075 %>%
                                                     mutate(branch.length = branch.length + 0.5)),
                            layout = "rect",
@@ -691,7 +628,7 @@ exploratory_1075
 pvdE_node <- 746
 yoji_node <- 651
 
-## Assign split out into new HOGs
+# Assign split out into new HOGs
 tree_1075 <- as.treedata(treedata_1075)
 
 pvdE_genes <- as_tibble(tree_1075) %>%
@@ -718,7 +655,7 @@ hp_1075_genes <-  as_tibble(tree_1075) %>%
 Unclear_1075_reassignments <- do.call(rbind, list(pvdE_genes,
                                                   yojI_genes,
                                                   hp_1075_genes))
-## pvdY  -----------------------------------------------------------------------
+# Manually resolve annotations for pvdY  ---------------------------------------
 ### Find OG pvdY is in
 pvdY_1_OGs <- all_loci %>%
   filter(grepl("pvdY", HOG_annotation)) %>%
@@ -776,7 +713,7 @@ pvdY_top_genes <- as_tibble(treedata_4708) %>% # 941 rows
 pvdY_4708_reassignments <- do.call(rbind, list(pvdY_bottom_genes,
                                                pvdY_top_genes))
 
-## Combine all manual reassigment data together
+# Combine all manual reassigment data together
 reassignment_data <- do.call(what = rbind,
                              args = list(Unclear_59_reassignments,
                                          Unclear_235_reassignments, 
@@ -807,7 +744,7 @@ unclear_reassignemtns <- reassignment_data %>%
          HOG_annotation_2 = case_when(is.na(new_annotation) ~ HOG_annotation,
                                       .default = paste0(new_annotation, "_", gsub("N0.HOG0*", "", HOG))))
 
-## redo numbering
+# redo numbering
 new_numbering <- unclear_reassignemtns %>%
   mutate(short_HOG_annotation = sub("_\\d+.*$", "", HOG_annotation_2)) %>%
   select(HOG, short_HOG_annotation) %>%
@@ -823,7 +760,7 @@ new_numbering <- unclear_reassignemtns %>%
             new_HOG          = HOG) %>%
   distinct()
 
-## merge into all_loci
+# merge into all_loci
 all_loci <- all_loci %>%
   left_join(new_numbering,
             by = c("Locus_Tag" = "Locus_Tag")) %>%
@@ -837,7 +774,7 @@ all_loci <- all_loci %>%
          HOG_annotation = HOG_annotation_2) %>%
   select(-HOG_annotation_2)
 
-## Make new list of potential genes off of the reassignments
+# Make new list of potential genes off of the reassignments
 potential_siderophore_HOGs <- all_loci %>%
   filter(gsub("_\\d+", "", HOG_annotation) %in% query_metadata$locus_name_in_source) %>%
   pull(HOG_annotation) %>%
@@ -858,24 +795,23 @@ potential_siderophore_HOGs_from_unclear <- all_loci %>%
 
 potential_siderophore_HOGs <- unique(c(potential_siderophore_HOGs, potential_siderophore_HOGs_from_unclear))
 
-## Save out annotations for later use
+# Save out annotations for later use
 write.csv(x         = all_loci,
           file      = paste0(annotations_file, ".csv"),
           row.names = FALSE)
 
 # Plot phylogenetic trees of reassignemnts -------------------------------------
-## Make new colour pallet 
-## TODO  move this up to where the pallet is made at the start, so it is included in my pvdY tree
+# Make new colour pallet 
 gene_colors_2 <- data.frame(gene = potential_siderophore_HOGs_from_unclear,
                             color = c("#F28500", # dltA_1,
                                       "#FF7F50", # dltA_2
-                                      "#b7410e" , # dltA_3
+                                      "#b7410e", # dltA_3
                                       "#E8E9EB", # HP_1
                                       "#D3D3D3", # HP_2,
                                       "#BEBEBE", # HP_3,
                                       "#A9A9A9", # HP_4
                                       "#928885", # HP_5
-                                      "#340068", # pvdD_1
+                                      "#d896ff", # pvdD_1
                                       "#2BA84A", # pvdE_1
                                       "#7D8491", # pvdI_1
                                       "#FF6978", # pvdJ_1
@@ -889,79 +825,39 @@ gene_colors_2 <- data.frame(gene = potential_siderophore_HOGs_from_unclear,
                        levels = potential_siderophore_HOGs_from_unclear),
          color= factor(color, levels = color))
 
-## Make heatmapt of new assignments
-new_assigments_data <- all_loci %>%
-  filter(Locus_Tag %in% tree_labels$Locus_Tag) %>%
-  select(Locus_Tag, HOG_annotation) %>%
-  left_join(tree_labels,
-            by = "Locus_Tag") %>%
-  select(label, HOG_annotation) %>%
-  pivot_longer(cols = HOG_annotation,
-               names_to = "name",
-               values_to = "value") %>%
-  left_join(gene_colors_2,
-            by = c("value" = "gene"))
-
-gene_annotation_heatmap <- ggplot(data = new_assigments_data,
-                                  mapping = aes(x = name,
-                                                y = label,
-                                                fill = color)) +
-  geom_tile() +
-  scale_fill_identity(guide  = "legend",
-                      name   = "Annotation",
-                      labels = gene_colors_2$gene) +
-  theme(axis.text = element_blank(),
-        axis.title = element_blank(),
-        axis.ticks = element_blank(),
-        panel.background = element_blank())
-
-## lets do treedata_59 to start as it was broken
-tree_plot <- ggtree(tr = as.treedata(treedata_59),
-                    layout = "rect",
-                    x      = length) +
-  geom_tippoint(mapping = aes(color = color),
-                show.legend = T) +
-  scale_color_identity(guide = "legend",
-                       name = "Bakta\nAnnotation",
-                       labels = c("HP",
-                                  "pvdD",
-                                  "entF",
-                                  "solG",
-                                  "pvdI",
-                                  "pvdJ",
-                                  "dltA")) +
-  theme_tree2()
-
-full_tree_plot <- gene_annotation_heatmap %>%
-  insert_left(tree_plot, width = 10)
-
+# Make trees 
 for(tree in c("treedata_235",
               "treedata_1075",
               "treedata_4708",
               "treedata_59")){
   
-  tmp <- get(tree)
+  # add in new colors for dots
+  tmp_tree <- get(tree) %>%
+    select(parent, node, branch.length, label, Locus_Tag) %>%
+    left_join(all_loci,
+              by = "Locus_Tag") %>%
+    left_join(gene_colors_2,
+              by = c("HOG_annotation" = "gene"))
   
-  tree_plot <- ggtree(tr = as.treedata(tmp),
+  tree_plot <- ggtree(tr = as.treedata(tmp_tree),
                       layout = "rect",
                       x      = length) +
-    geom_tippoint(mapping = aes(color = color),
-                  show.legend = F) +
+    geom_tippoint(mapping = aes(color = color)) +
     scale_color_identity() +
     theme_tree2()
   
-  full_tree_plot <- gene_annotation_heatmap %>%
-    insert_left(tree_plot, width = 10)
-  
   assign(x = paste0(tree, "_plot"),
-         value = full_tree_plot)
-  
+         value = tree_plot)
+
 }
 
 all_trees <- plot_list(treedata_59_plot, treedata_235_plot,
                        treedata_1075_plot, treedata_4708_plot,
-                       design = "AABB\nAACC\nAADD",
-                       widths = c(1, 0.5))
+                       design = "AAABB\nAAACC\nAAADD",
+                       widths = c(10, 0.3))
+
+
+
 all_trees
 
 ggsave(path     = figure_dir,
@@ -970,7 +866,30 @@ ggsave(path     = figure_dir,
        device   = "svg",
        width    = 15,
        height   = 15,
-       dpi      = 300)
+       dpi      = 300,
+       units    = "cm")
+
+# Make legend
+legend_plot <- ggplot(data = gene_colors_2,
+                      mapping = aes(x = 1,
+                                    y = gene,
+                                    color = color)) +
+  geom_point(size = 0) +
+  scale_color_identity(name  = "HOG\nAnnotation",
+                       breaks = gene_colors_2$color,
+                       labels = gene_colors_2$gene,
+                       guide = "legend") +
+  theme_void()
+
+ggsave(path     = figure_dir,
+       filename = "figure_1_phylogenetic_trees_legend.svg",
+       plot     = legend_plot,
+       device   = "svg",
+       width    = 5,
+       height   = 15,
+       dpi      = 300,
+       units    = "cm")
+
 
 # Identify PVD region in complete genomes -------------------------------------
 ## Are genes in a consistent position?
@@ -986,14 +905,15 @@ sid_HOG_density <- ggplot(data    = all_loci %>%
                  show.legend = TRUE) +
   scale_y_continuous(name = "Count (n)",
                      expand = c(0, 0)) +
-  scale_x_continuous(name = "\n Gene Start (kb)",
+  scale_x_continuous(name = "Gene Start (kb)",
                      expand = c(0, 0)) +
   scale_fill_discrete(name = "Gene") +
   scale_color_discrete(name = "Gene") +
   coord_cartesian(xlim = c(0, 8000),
                   ylim = c(0, 2000)) +
   theme_bw() +
-  theme(legend.position = c(0.8, 0.6))
+  theme(aspect.ratio    = 1,
+        text = element_text(size = 8))
 
 sid_HOG_density
 
@@ -1017,7 +937,8 @@ all_gene_size_plot <- ggplot(data = region_sizes,
                      expand = c(0, 0)) +
   coord_cartesian(ylim = c(0, 200),
                   xlim = c(0, 4050)) +
-  theme_bw() 
+  theme_bw() +
+  theme(aspect.ratio    = 1)
 
 all_gene_size_plot
 
@@ -1063,6 +984,38 @@ confident_sid_orthogroups <- sid_genes_in_region %>%
   filter(max_ORF_distance < 3) %>%
   pull(HOG_annotation)
 
+## Plot new region locations 
+conf_sid_HOG_density <- ggplot(data    = all_loci %>%
+                                 filter(HOG_annotation %in% confident_sid_orthogroups) %>%
+                                 filter(!(bacteria_code %in% iats_codes)) %>%
+                                 mutate(start_kb = Start/1000,
+                                        start_mb = start_kb/1000),
+                               mapping = aes(x    = start_kb)) +
+  geom_histogram(binwidth    = 50,
+                 show.legend = TRUE) +
+  scale_y_continuous(name = "Count (n)",
+                     expand = c(0, 0)) +
+  scale_x_continuous(name = "\n Gene Start (kb)",
+                     expand = c(0, 0)) +
+  scale_fill_discrete(name = "Gene") +
+  scale_color_discrete(name = "Gene") +
+  coord_cartesian(xlim = c(0, 5100),
+                  ylim = c(0, 1500)) +
+  theme_bw() +
+  theme(text = element_text(size = 8),
+        aspect.ratio = 1)
+
+conf_sid_HOG_density
+
+ggsave(path     = figure_dir,
+       filename = "figure_1_conf_gene_density.svg",
+       plot     = conf_sid_HOG_density,
+       device   = "svg",
+       width    = 5,
+       height   = 5,
+       dpi      = 300,
+       units    = "cm")
+
 ## Define siderophore region boundaries
 region_boundaries <- all_loci %>%                         
   filter(HOG_annotation %in% confident_sid_orthogroups) %>%
@@ -1106,10 +1059,21 @@ high_conf_gene_size_plot <- ggplot(data = high_confidence_region_sizes,
   scale_y_continuous(name = "Count (n)",
                      expand = c(0, 0)) +
   coord_cartesian(ylim = c(0, 100),
-                  xlim = c(0, 200)) +
-  theme_bw() 
+                  xlim = c(0, 205)) +
+  theme_bw() +
+  theme(text = element_text(size = 8),
+        aspect.ratio = 1)
 
 high_conf_gene_size_plot
+
+ggsave(path     = figure_dir,
+       filename = "figure_1_conf_region_size.svg",
+       plot     = high_conf_gene_size_plot,
+       device   = "svg",
+       width    = 5,
+       height   = 5,
+       dpi      = 300,
+       units    = "cm")
 
 left_peak_median <- high_confidence_region_sizes %>%
   filter(region_size_kb < 93) %>%
@@ -1122,6 +1086,8 @@ right_peak_median <- high_confidence_region_sizes %>%
   median()
 
 ## Save out plots
+# TODO work out how to either save them aligned prperly here as an svg then tidy, or 
+# seperately and arrange manually?
 region_sizes_plot <- plot_list(sid_HOG_density, all_gene_size_plot, high_conf_gene_size_plot)
 
 ggsave(path     = figure_dir,
@@ -1255,12 +1221,12 @@ fancy_network_graph <- gene_network_graph %>%
             by = c("name" = "gene")) %>%
   ggraph(layout = "stress",
          weight = similar) +
-  geom_edge_link(arrow = arrow(length = unit(1, 'mm')), 
+  geom_edge_link(arrow   = arrow(length = unit(1, 'mm')), 
                  end_cap = circle(1, 'mm')) +
   geom_edge_loop(arrow = arrow(length = unit(1, 'mm')), 
                  end_cap = circle(1, 'mm')) +
-  geom_node_point(show.legend = TRUE,
-                  size = 11,
+  geom_node_point(show.legend = T,
+                  size = 2,
                   mapping = aes(color = class)) +
   scale_color_discrete(name = "Function",
                        labels = c("Hydrolysis",
@@ -1270,23 +1236,11 @@ fancy_network_graph <- gene_network_graph %>%
                                   "Reduction")) +
   geom_node_text(aes(label = name,
                      color = class),
-                 size = 10,
+                 
+                 size = 8/.pt,
                  repel = TRUE,
                  point.padding = unit(1, "cm"),
                  show.legend = FALSE) +
-#  scale_color_manual(name   = "Gene\nClassification",
-#                     labels = c("Not Previously Associated",
-#                                "Hypothetical Protein",
-#                                "Previously Assoicated",
- #                               "High Confidence Orthogroup",
-#                                "Unclear Function"),
-#                     values = c("black",
-#                                "blue",
-#                                "green",
-#                                "orange",
-#                                "red")) +
-  coord_flip() +  
-  scale_x_reverse() +
   scale_y_reverse() +
   theme_bw() +
   theme(axis.title.x = element_blank(),
@@ -1299,19 +1253,30 @@ fancy_network_graph <- gene_network_graph %>%
         panel.border     = element_blank(),
         panel.background = element_blank(),
         legend.position = c(0.1, 0.85),
-        legend.title = element_text(size = 50),
-        legend.text = element_text(size = 40)) +
+        legend.title = element_text(size = 8),
+        legend.text = element_text(size = 8)) +
   guides(color = guide_legend(ncol = 1))
 
 fancy_network_graph
 
 ggsave(path     = figure_dir,
-       filename = "figure_3_pangenome_portrait.png",
+       filename = "figure_2_pangenome_landscape.svg",
+       plot     = fancy_network_graph,
+       device   = "svg",
+       width    = 12.92*2,
+       height   = 12.92,
+       units    = "cm",
+       dpi      = 300)
+
+ggsave(path     = figure_dir,
+       filename = "figure_2_pangenome_massive.png",
        plot     = fancy_network_graph,
        device   = "png",
-       width    = 15,
-       height   = 20,
+       width    = 50,
+       height   = 25,
+       units    = "cm", 
        dpi      = 300)
+
 
 new_siderophore_genes <- unique(c(co_occurence$gene_1, co_occurence$gene_2))
 
