@@ -202,8 +202,16 @@ non_cannonical_sequences <- distinct_pvd_sequences %>%
             bacteria_codes = paste(bacteria_code, collapse = ", ")) %>%
   arrange(pvd_type, prediction_quality)
 
-write.csv(x         = distinct_sequences,
-          file      = "./data/NRPS_transformer/run_2/aa_sequences.csv",
+example_sequence_table <- distinct_pvd_sequences %>%
+  group_by(pvd_sequence, pvd_type, cannonical) %>%
+  summarise(n = sum(n)) %>%
+  mutate(cannonical = case_when(cannonical ~ "Y",
+                                .default = "N"),
+         cannonical = factor(cannonical, levels = c("Y", "N"))) %>%
+  arrange(pvd_type, cannonical)
+
+write.csv(x         = example_sequence_table,
+          file      = "./data/figures/figure_3_PVD_aa_table.csv",
           row.names = FALSE)
 # Plot an example region of each mis-typed genome-------------------------------
 # Choose bacteria for my example
@@ -225,11 +233,6 @@ NRPS_enzymes <- nrps_sequences %>%
   pull(HOG_annotation) %>%
   unique()
 
-# Set colours
-NRPS_colors <-  data.frame(annotation = c(NRPS_enzymes, "HP"),
-                           color      = c(brewer.pal(length(NRPS_enzymes), "Set3"),
-                                          "#676795"))
-
 # Get the boundaries of the branch
 # NB we include NRPS_enzymes as some genes have NRPS domains but are not branch specific
 example_boundaries <- all_loci %>% # Pa_F092021_1635 is here
@@ -239,7 +242,7 @@ example_boundaries <- all_loci %>% # Pa_F092021_1635 is here
   summarise(branch_start    = min(Locus),
             branch_end      = max(Locus),
             branch_start_bp = min(Start))
-  
+
 # Filter to boundaires, plus 2 extra loci 
 example_regions <- all_loci %>%
   select(bacteria_code, Locus, HOG_annotation, Start, Stop, Strand) %>%
@@ -250,6 +253,25 @@ example_regions <- all_loci %>%
   filter(Locus >= branch_start - 5  &
          Locus <= branch_end   + 5) %>%
   mutate(bacteria = factor(bacteria_code, levels = example_bacteria))
+
+# Set colours
+genes_of_interest <- example_regions %>%
+  filter(HOG_annotation %in% NRPS_enzymes) %>%
+  pull(HOG_annotation) %>%
+  unique() %>%
+  sort()
+
+gene_colors <- data.frame(annotation = genes_of_interest,
+                          color      = c("#F28500", # dltA_1,
+                                         "#FF7F50", # dltA_2
+                                         "#b7410e", # dltA_3
+                                         "#928885", # HP_1
+                                         "#d896ff", # pvdD_1
+                                         "#7D8491", # pvdI_1
+                                         "#FF6978", # pvdJ_1
+                                         "#458b74", # pvdL_1
+                                         "#CD143C")) # solG_1
+
 
 # Align the regions so they all start at 0
 ## Get start co-ordinate
@@ -276,10 +298,10 @@ example_aligned_regions <- example_regions %>%
             by = c("bacteria_code" = "bacteria_code",
                    "Locus"    = "Locus",
                    "HOG_annotation" = "HOG_annotation")) %>%
-  left_join(NRPS_colors,
+  left_join(gene_colors,
             by = c("Gene" = "annotation")) %>%
-  mutate(Gene  = factor(Gene, levels  = NRPS_colors$annotation),
-         color = factor(color, levels = NRPS_colors$color),
+  mutate(Gene  = factor(Gene, levels  = gene_colors$annotation),
+         color = factor(color, levels = gene_colors$color),
          bacteria_code = factor(bacteria_code, levels = rev(example_bacteria)))
 
 # Plot regions
@@ -299,8 +321,8 @@ example_plot <- ggplot(data = example_aligned_regions,
                   min.size = 0,
                   height   = unit(arrowhead_height * 0.75, "cm")) + # this should be 9pt font
   scale_fill_identity(guide  = "legend",
-                      name   = "Gene",
-                      labels = NRPS_colors$annotation) +
+                      name   = "HOG",
+                      labels = gene_colors$annotation) +
   scale_y_discrete(name = NULL) +
   theme_genes() + 
   theme_grey(base_size = 9) +
@@ -321,9 +343,9 @@ example_plot <- ggplot(data = example_aligned_regions,
 example_plot
 
 # Save out
-ggsave(filename = "./data/figures/figure_4_erronous_regions_plot.png",
+ggsave(filename = "./data/figures/figure_3_erronous_regions_plot.svg",
        plot = example_plot,
-       device = "png",
+       device = "svg",
        width  = 21 - 2.54 - 2.54,
        height = 10,
        units  = "cm")
