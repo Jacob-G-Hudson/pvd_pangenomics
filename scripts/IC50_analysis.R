@@ -1,4 +1,5 @@
 # IC50 analysis 
+# TODO merge in IC50 analysis 2
 # Dependencies -----------------------------------------------------------------
 library(tidyverse)
 library(ggpubr)           # statistics for graphs
@@ -172,14 +173,17 @@ per_inhibition <- OD600_plot_data %>%
          bacteria_code        = factor(bacteria_code),
          grouping             = paste(bacteria_code, iron, sep = ","),
          row                  = factor(row, levels = rev(c("A", "B", "C", "D",
-                                                       "E", "F", "G", "H")))) %>%
-  filter(time_h == 48)
+                                                       "E", "F", "G", "H"))))
 
 
+## Write out for further snalaysis
+write.csv(x = per_inhibition,
+          file = "./raw_data/ic50/compiled_results.csv",
+          row.names = FALSE)
 
 ## Fit models
-supernatant_models <-  drm(formula = corrected_per_growth ~ concentration,
-                           curveid = c(iron, bacteria_code),
+supernatant_models <-  drm(formula = corrected_per_growth ~ concentration * iron,
+                           curveid = bacteria_code,
                            data    = per_inhibition,
                            fct     = LL.4(names = c("Slope", "Lower Limit", "Upper Limit", "IC50"),
                                           fixed = c(NA, NA, NA, NA)))
