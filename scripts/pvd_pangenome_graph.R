@@ -7,8 +7,6 @@ library(tidygraph)      # Network plot
 library(ggraph)         # Network plotting, tidygraph companion
 library(ggalluvial)     # Allivual/Sankey plot functions 
 
-
-
 # Options ----------------------------------------------------------------------
 ## Inputs
 HOG_file               <- "./data/orthofinder/N0.tsv"
@@ -40,7 +38,6 @@ gffs <- read.csv(bakta_annotations) %>%
   filter(Type == "cds") %>%
   rename(bakta_gene    = Gene,
          bakta_product = Product) %>%
-  # TODO update these regex to just replace anything with "hypothetical" in it?
   mutate(Pseudogene    = grepl("\\(pseudo\\) ", bakta_product),
          bakta_gene    = gsub("Unknown", "hypothetical protein", bakta_gene),
          bakta_product = gsub("\\(pseudo\\) ", "", bakta_product),
@@ -197,6 +194,16 @@ bakta_annotation_stats <- bakta_summaries %>%
   summarise(min  = min(Count),
             mean = mean(Count),
             max  = max(Count))
+
+n_bakta_annotated_orfs <- bakta_summaries %>%
+  filter(Feature %in% c("hypotheticals", "CDSs")) %>%
+  pivot_wider(names_from = Feature,
+              values_from = Count) %>%
+  mutate(per_anntotated = (CDSs - hypotheticals)/CDSs * 100)
+
+per_annotated_range <- range(n_bakta_annotated_orfs$per_anntotated)
+mean_per_annotated  <- mean(n_bakta_annotated_orfs$per_anntotated)
+
 
 HOG_classes <- all_loci %>%
   select(HOG_annotation) %>%

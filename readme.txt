@@ -1,1 +1,1 @@
-Code for pvd_pangenomics paper
+Code relating to Microbial Genetic submission Pseudomonas aeruginosa Pangenome Guided HMMs Identify Antifungal Pyoverdines for Mucormycosis Treatment

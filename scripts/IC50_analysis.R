@@ -12,7 +12,8 @@ my_theme <- theme_bw() +
   theme(plot.title = element_text(hjust = 0.5))
 
 # Load data ----
-per_inhibition <- read.csv(file = "./raw_data/ic50/compiled_results.csv")
+per_inhibition <- read.csv(file = "./raw_data/ic50/compiled_results.csv") %>%
+  filter(time_h == 48)
 
 # Compute f-test p-values ----
 f_test <- function(data, x, y, group){
@@ -23,7 +24,7 @@ f_test <- function(data, x, y, group){
                        curveid = data[[group]],
                        fct     = LL.4(names = c("Slope", "Lower Limit", "Upper Limit", "IC50"),
                                       fixed = c(NA, 0, NA, NA)),
-                       pmodels = list( ~ 1, ~ 1, ~ 1, ~data[[group]]-1),  # model is reduced because these params are contrained
+                       pmodels = list(~1, ~data[[group]]-1, ~1, ~data[[group]]-1),  # model is reduced because IC50 is constrained
                        upperl =  c(+Inf, NULL, 225, +Inf))
   
   full_model   <- drm(formula = as.formula(paste(x, "~", y)),
@@ -31,6 +32,7 @@ f_test <- function(data, x, y, group){
                       curveid = data[[group]],
                       fct     = LL.4(names = c("Slope", "Lower Limit", "Upper Limit", "IC50"),
                                      fixed = c(NA, 0, NA, NA)),
+                      pmodels = list(~data[[group]]-1, ~data[[group]]-1, ~data[[group]]-1, ~data[[group]]-1),
                       upperl =  c(+Inf, NULL, 225, +Inf))
   
   
@@ -70,7 +72,7 @@ f_test <- function(data, x, y, group){
   
 }
 
-f_test_results <- lapply(X = split(per_inhibition ,
+f_test_results_48 <- lapply(X = split(per_inhibition ,
                                    ~ bacteria_code),
                          FUN = f_test,
                          x    = "corrected_per_growth",
@@ -113,6 +115,7 @@ for(bacteria_code in unique(per_inhibition$bacteria_code)){
                    curveid = iron,
                    fct     = LL.4(names = c("Slope", "Lower Limit", "Upper Limit", "IC50"),
                                   fixed = c(NA, 0, NA, NA)),
+                   pmodels = list(~iron-1, ~iron-1, ~iron-1, ~iron-1),
                    upperl =  c(+Inf, NULL, 225, +Inf))
   
   
@@ -156,7 +159,7 @@ for(bacteria_code in unique(per_inhibition$bacteria_code)){
                             label = p.code),
               inherit.aes = FALSE,
               size        = 8/.pt) +
-    scale_x_continuous(name  = x_axis_title,
+    scale_x_continuous(name  = NULL,
                        limits = c(0, 100),
                        breaks = seq(0, 100, 10),
                        minor_breaks = NULL,
@@ -170,7 +173,7 @@ for(bacteria_code in unique(per_inhibition$bacteria_code)){
                        values = c("#E66100",
                                   "#5D3A9B")) +
     facet_grid(cols = vars(bacteria_code),
-               rows = vars(pvd_type)) +
+               rows = vars(timepoint)) +
     coord_cartesian(ylim  = c(0, 250),
                     xlim  = c(0, 55)) +
     theme_minimal() +
@@ -202,4 +205,12 @@ ggsave(filename = "figure_4_suparnatant_v_OD600_curves.svg",
 mean_inhibitions <- per_inhibition %>%
   group_by(bacteria_code, iron, concentration) %>%
   summarise(mean_growth = mean(corrected_per_growth))
+
+actual_growths <- per_inhibition %>%
+  select(Repeat, corrected_control_OD600) %>%
+  distinct() %>%
+  pull(corrected_control_OD600)
+
+mean_actual <- mean(actual_growths)
+se_actual   <- sd(actual_growths)/sqrt(6)
 
