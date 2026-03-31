@@ -252,8 +252,6 @@ OGs_to_examine <- all_loci %>%
 
 
 # Alluvial plot demonstragig how genes map to HOGs -----------------------------
-## TODO see if I can change the alluvial so that known genes are on the left, and unknowns on the right
-## hopefully this will give me a bit more space on the plot! 
 if(FALSE){
 # Make alluvial data
 alluvial_data <- all_loci %>%
@@ -1048,7 +1046,6 @@ full_sid_regions <- all_loci %>%
          Locus <= region_locus_end   + 5)
 
 ## Plot size of siderophore regions
-### TODO sum regions in different contigs? Or split them?
 high_confidence_region_sizes <- full_sid_regions %>%
   filter(!(bacteria_code %in% iats_codes)) %>%
   select(bacteria_code, Locus, Start, Stop, HOG_annotation) %>%
@@ -1093,8 +1090,6 @@ right_peak_median <- high_confidence_region_sizes %>%
   median()
 
 ## Save out plots
-# TODO work out how to either save them aligned prperly here as an svg then tidy, or 
-# seperately and arrange manually?
 region_sizes_plot <- plot_list(sid_HOG_density, all_gene_size_plot, high_conf_gene_size_plot)
 
 ggsave(path     = figure_dir,
@@ -1337,9 +1332,6 @@ expected_lengths <- full_sid_regions %>%
   summarise(median_size = median(Stop - Start))
 
 # Repair regions
-## TODO why does this even need a genes of interest?
-## ~ remake so all genes are repaired? 
-## ~ then it could happen before pangenome is drawn
 region_repair <- function(split_all_loci, region_boundaries, region_pad, Locus_col,
                           annotation_col, expected_lengths){
   
@@ -1399,9 +1391,6 @@ region_repair <- function(split_all_loci, region_boundaries, region_pad, Locus_c
       #writeLines("Length Correct")
       
       # if incorrect consider adjacent genes  
-      # TODO include special case where we are at the boundaries of a region and therefore
-      # we have no next locus. 
-      # Or we should consider all_loci? 
     } else {
       
       #writeLines("Length incorrect")
@@ -1729,9 +1718,6 @@ write.csv(x    = siderotype_strain_predictions,
           row.names = FALSE)
 
 # Map type to all genes ---------------------------------------------------------
-# TODO I made a change to how bacteria_code is included in all_loci, as previously some were missing
-#      need to remake these graphs as they may now be imnproved
-# TODO also need to tidy how I add in bacteria_code into the heatmaps etc, because i've tidied it previosuly
 OGs_to_inspect <- all_loci %>%
   filter(HOG_annotation %in% new_siderophore_genes) %>%
   select(OG, HOG, HOG_annotation) %>%
