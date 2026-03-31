@@ -360,7 +360,6 @@ hmm_pvd_region <- hmm_annotation %>%
 in_region_correct_rate <- hmm_pvd_region %>%
   # remove cip strains as we don't have pangenome annotation for them
   filter(!grepl("CIP", bacteria_code)) %>%  
-  # to do work out a summary statistic for this stage such as senstivity/specificity/accuracy
   mutate(agreement = case_when(HOG_annotation == hmm_annotation ~ "Agree",
                                .default = "Disagree")) %>%
   group_by(agreement, hmm_annotation) %>%
@@ -427,6 +426,11 @@ final_comparison <- hmm_pvd_prediction %>%
   group_by(agreement) %>%
   summarise(n = n(),
             per = n/477 * 100)
+
+# Save out HMM predictions
+write.csv(x = hmm_pvd_prediction,
+          file = "./data/hmm_predictions.csv",
+          row.names = FALSE)
 
 # Type the cip strains ----
 ## get previous siderotypes
