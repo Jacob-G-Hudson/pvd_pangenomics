@@ -10,6 +10,7 @@ library(RColorBrewer) # nicer pallets
 annotations_file       <- "./data/reannotated_genomes.csv"
 NRPStransformer_dir    <- "./data/NRPS_transformer/results"
 PVD_predictions_file   <- "./data/siderotype_strain_predictions.csv"
+hmm_predictions_file   <- "./data/hmm_predictions.csv"
   
 # Functions ----
 csv_read <- function(file, skip = 0, ...){
@@ -51,6 +52,7 @@ csv_read <- function(file, skip = 0, ...){
 all_loci <- read.csv(annotations_file)
 
 PVD_predictions <- read.csv(PVD_predictions_file)
+hmm_predictions <- read.csv(hmm_predictions_file)
   
 raw_nrps <- lapply(X   = list.files(path      = NRPStransformer_dir,
                                     full.name = TRUE),
@@ -120,7 +122,6 @@ nrps_missing_bacteria <- all_loci %>%
             by = "bacteria_code")
 
 # Get amino acid sequences for each enzyme ----
-## NB is this keeping the domain order the same? I imagine NRPS translocator keeps it preserved?
 nrps_sequences <- nrps_data %>% 
   # remove low confidence strains, as they are missing core genes by definition
   filter(prediction_quality %in% c("medium", "high")) %>% 
@@ -155,7 +156,7 @@ pvd_sequences <- nrps_sequences %>%
                                         Strand == "-" ~ paste(rev(aa_sequence), collapse = "-"))) %>%
   left_join(PVD_predictions,
             by = "bacteria_code") 
-  
+
 ## Get just distinct sequences for analysis
 ### From enzymes
 distinct_enzyme_sequences <- pvd_sequences %>%
@@ -349,6 +350,23 @@ ggsave(filename = "./data/figures/figure_3_erronous_regions_plot.svg",
        width  = 21 - 2.54 - 2.54,
        height = 10,
        units  = "cm")
+
+# Map pvd_sequence to pangenome and hmm type
+comparisons_table <- PVD_predictions %>%
+  mutate(bacteria_code = as.character(bacteria_code)) %>%
+  select(bacteria_code, pvd_type, prediction_quality) %>%
+  left_join(hmm_predictions %>%
+              select(bacteria_code, hmm_pvd_type),
+            by = c("bacteria_code")) %>%
+  left_join(pvd_sequences %>%
+              mutate(bacteria_code = as.character(bacteria_code)) %>%
+              select(bacteria_code, pvd_sequence),
+            by = c("bacteria_code")) %>%
+  rename(PGDB_code = bacteria_code)
+
+write.csv(x = comparisons_table, 
+          file = "./data/prediction_summary.csv",
+          row.names = FALSE)
 
 
 
