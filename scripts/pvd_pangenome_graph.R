@@ -1040,7 +1040,7 @@ region_boundaries <- all_loci %>%
 full_sid_regions <- all_loci %>%
   left_join(region_boundaries,
             by = c("bacteria_code" = "bacteria_code",
-                   "Sequence" = "Sequence")) %>%
+                   "Sequence"      = "Sequence")) %>%
   group_by(bacteria_code, Sequence) %>%
   filter(Locus >= region_locus_start - 5 &
          Locus <= region_locus_end   + 5)
