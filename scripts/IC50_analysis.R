@@ -12,8 +12,8 @@ my_theme <- theme_bw() +
   theme(plot.title = element_text(hjust = 0.5))
 
 # Load data ----
-per_inhibition <- read.csv(file = "./raw_data/ic50/compiled_results.csv") %>%
-  filter(time_h == 48)
+per_inhibition <- read.csv(file = "./raw_data/ic50/results.csv") %>%
+  filter(time_h == 24)
 
 # Compute f-test p-values ----
 f_test <- function(data, x, y, group){
@@ -72,7 +72,7 @@ f_test <- function(data, x, y, group){
   
 }
 
-f_test_results_48 <- lapply(X = split(per_inhibition ,
+f_test_results_24 <- lapply(X = split(per_inhibition ,
                                    ~ bacteria_code),
                          FUN = f_test,
                          x    = "corrected_per_growth",
@@ -83,7 +83,7 @@ f_test_results_48 <- lapply(X = split(per_inhibition ,
                           method = "BH",
                           n = 6))
 
-IC50_range <- f_test_results %>%
+IC50_range <- f_test_results_24 %>%
   filter(models == "full")
 
 # Plot curves where curve is calcalted from the significant model ----
@@ -96,7 +96,7 @@ for(bacteria_code in unique(per_inhibition$bacteria_code)){
     filter(bacteria_code == UQ(bacteria_code))
   
   # Get p-value 
-  tmp_p_value <- f_test_results %>%
+  tmp_p_value <- f_test_results_24 %>%
     filter(bacteria_code == UQ(bacteria_code)) %>%
     na.omit() %>%
     transmute(p.adj   = p.adj,
@@ -194,9 +194,9 @@ dose_response_curves <- (bacteria_107_plot  + bacteria_109_plot)  /
   (bacteria_3319_plot + bacteria_3320_plot) /
   (bacteria_3314_plot + bacteria_3330_plot)
 
-ggsave(filename = "figure_4_suparnatant_v_OD600_curves.svg",
+ggsave(filename = "figure_4_suparnatant_v_OD600_curves_24.svg",
        plot   = dose_response_curves,
-       path   = "./data/figures",
+       path   = "./data/figures/testing",
        width  = 21- 2.54 - 2.54,
        height = 20,
        units = "cm")
@@ -213,4 +213,15 @@ actual_growths <- per_inhibition %>%
 
 mean_actual <- mean(actual_growths)
 se_actual   <- sd(actual_growths)/sqrt(6)
+
+IC50_table <- IC50_range %>%
+  transmute(bacteria_code = bacteria_code,
+            IC50          = paste(round(no_iron_IC50, 2), " ± ", round(no_iron_IC50_SEM, 2), sep = ""),
+            IC50_iron     = paste(round(iron_IC50, 2), " ± ", round(iron_IC50_SEM, 2), sep = "")) %>%
+  left_join(strain_names,
+            by = c("bacteria_code" = "Strain.ID"))
+
+strain_names <- read.csv(file = "raw_data/iats_siderotypes.csv") %>%
+  select(Strain.ID, CIP.number) %>%
+  mutate(Strain.ID = as.character(Strain.ID))
 
